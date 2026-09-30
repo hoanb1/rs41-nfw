@@ -229,6 +229,24 @@ Trong đó:
 - Khi xe di chuyển (`speed >= 2.5 km/h`): Gán nhãn `stationRole = "mobile"`, thể hiện trạm thời tiết di động.
 - Khi xe dừng đỗ (`speed < 2.5 km/h`): Gán nhãn `stationRole = "stationary"`, thể hiện trạm thời tiết tại chỗ.
 
+### 4.4. Hệ thống Xử lý Sai số & Lọc Nhiễu GPS Đa Tầng (Multi-Layer GNSS Anti-Noise System)
+Nhằm triệt tiêu hiện tượng trôi vị trí (stationary wander/drift), nhảy vọt tọa độ (multipath glitches) và rung giật vận tốc khi xe dừng đỗ, hệ thống triển khai 5 tầng lọc phối hợp:
+
+1. **Khóa vị trí phần cứng u-blox M10 (Hardware Static Hold)**:
+   - Cấu hình qua khóa UBX-CFG-VALSET: `CFG-NAVSPG-STATIC_HOLD_THRS = 50` ($50\text{ cm/s} = 1.8\text{ km/h}$) và `CFG-NAVSPG-STATIC_HOLD_MAX_DIST = 20\text{ m}`.
+   - Khi xe dừng lại hoặc vận tốc $< 1.8\text{ km/h}$, chip M10 tự động khóa cứng vị trí và ép vận tốc về $0.0\text{ km/h}$, ngăn chặn hiện tượng trôi ngẫu nhiên từ phần cứng.
+2. **Ngưỡng chết vận tốc (Velocity Deadband)**:
+   - Tại `gpsCommitReadings()`, firmware tự động kẹp mọi giá trị vận tốc đo $< 1.5\text{ km/h}$ về đúng $0.0\text{ km/h}$ để triệt tiêu nhiễu nền khi xe dừng chờ đèn đỏ hoặc đỗ xe.
+3. **Điểm neo tọa độ tĩnh phần mềm (Software Stationary Anchor Filter)**:
+   - Khi xe dừng đỗ liên tục hoặc ở chế độ trạm thời tiết (`operationalMode == 2`), firmware thiết lập một điểm neo tọa độ (`anchorLat, anchorLon`).
+   - Mọi dao động trong bán kính $< 25\text{ mét}$ được kẹp cố định về tâm neo, triệt tiêu 100% "búi sợi chỉ" (bird's nest) trên bản đồ.
+   - Khi xe lăn bánh vượt bán kính 25m với vận tốc $\ge 2.5\text{ km/h}$, điểm neo tự động được giải phóng để chuyển sang trạng thái bám hành trình động.
+4. **Cổng kiểm tra động học loại bỏ bước nhảy dị biệt (Kinematic Outlier Gate)**:
+   - Tính toán khoảng cách dịch chuyển và vận tốc suy diễn giữa 2 mẫu đo liên tiếp: $v_{\text{implied}} = \frac{\Delta d}{\Delta t} \cdot 3.6\text{ km/h}$.
+   - Nếu $v_{\text{implied}} > 180\text{ km/h}$ trong khoảng thời gian ngắn, mẫu đo được xác định là xung nhiễu phản xạ đa đường (multipath glitch từ tòa nhà cao tầng) và bị loại bỏ ngay lập tức.
+5. **Bộ lọc chất lượng hình học vệ tinh ($pDOP / HDOP$ Gate)**:
+   - Chỉ xác nhận tọa độ khi $pDOP \le 4.5$ và số lượng vệ tinh $\text{Sats} \ge 4$, đảm bảo độ tin cậy hình học cao nhất trước khi ghi vào cơ sở dữ liệu.
+
 ---
 
 ## 5. ĐẶC TẢ GIAO DIỆN & LƯU TRỮ TRÊN NỀN TẢNG CLOUD (`hoan.uk`)

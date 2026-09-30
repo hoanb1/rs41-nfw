@@ -433,6 +433,14 @@ constexpr bool gpsHardwareJammingMonitor = true;  // poll the 0..255 CW jamming 
                                                   // MON-HW (u-blox 6). This is a raw interference level only; there is
                                                   // no jamming state on these modules.
 
+/* Advanced GPS Accuracy & Noise Reduction Filters (Car Tracker & Weather Station) */
+constexpr bool     gpsStaticHoldEnable        = true; // Enable u-blox Static Hold (pins coords when speed < threshold)
+constexpr uint8_t  gpsStaticHoldThreshCmS     = 50;   // Velocity threshold: 50 cm/s = 0.5 m/s = 1.8 km/h
+constexpr uint16_t gpsStaticHoldMaxDistM      = 20;   // Distance threshold before releasing static hold: 20 m
+constexpr bool     gpsStationaryAnchorEnable  = true; // Firmware software anchor: clamps position while parked
+constexpr float    gpsMaxPlausibleSpeedKph    = 180.0f; // Kinematic outlier gate: reject jumps implying > 180 km/h
+constexpr float    gpsMaxAcceptableHdop       = 4.5f;   // pDOP quality gate: reject fixes with degraded geometry
+
 /* Satellites engine profile - satellite acceptance vs power. Sets the receiver's
    minimum-elevation and C/N0 (signal-strength) masks. More sensitive settings
    keep weaker and lower satellites for better availability/accuracy at the cost

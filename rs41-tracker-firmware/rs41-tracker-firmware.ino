@@ -2056,10 +2056,11 @@ void gpsConfigureUbx() {
     if (gpsAssistNowAutonomous)
       m10ValSetU1(0x10230001UL, 1);   // CFG-ANA-USE_ANA = 1 (verified against M10 SPG 5.30 config DB)
 
-    // NOTE: the old ubxCfgValSet_maxSvs64 message was dropped - its key was
-    // 0x20110021 (that is DYNMODEL, not a max-SV limit) and its hardcoded
-    // checksum was wrong, so the M10 always NAKed it and it never did anything.
-    // The M10 has no artificial SV cap by default, so nothing is needed here.
+    // Static Hold (lock position and force velocity to 0 when vehicle stops)
+    if (gpsStaticHoldEnable) {
+      m10ValSetU1(0x20110025UL, gpsStaticHoldThreshCmS);  // CFG-NAVSPG-STATIC_HOLD_THRS (cm/s)
+      m10ValSetU2(0x30110026UL, gpsStaticHoldMaxDistM);   // CFG-NAVSPG-STATIC_HOLD_MAX_DIST (m)
+    }
 #endif
   }
   else if (rsm4x2) {
@@ -2091,6 +2092,11 @@ void gpsConfigureUbx() {
     if (ubloxGpsAirborneMode) {
       nav5mask |= 0x0001;                // dynModel
       nav5[2]   = gpsDynamicModel;
+    }
+    if (gpsStaticHoldEnable) {
+      nav5mask |= 0x0008;                // staticHoldMask
+      nav5[18]  = gpsStaticHoldThreshCmS;
+      nav5[19]  = (uint8_t)gpsStaticHoldMaxDistM;
     }
     nav5[0] = nav5mask & 0xFF; nav5[1] = nav5mask >> 8;
     sendUbx(0x06, 0x24, nav5, 36, true);
@@ -2391,15 +2397,96 @@ void gpsCommitReadings() {
   gpsHours = gps.time.hour();
   gpsMinutes = gps.time.minute();
   gpsSeconds = gps.time.second();
-  gpsLat = gps.location.lat();
-  gpsLong = gps.location.lng();
-  gpsAltFresh = gps.navUpdated;    // a fresh position solution was committed this cycle
+
+  double rawLat = gps.location.lat();
+  double rawLong = gps.location.lng();
+  float rawAlt = gps.altitude.meters();
+  float rawSpeed = gps.speed.mps();
+  float rawSpeedKph = gps.speed.kmph();
+  uint8_t sats = gps.satellites.value();
+  float hdop = gps.hdop.hdop();
+
+  gpsAltFresh = gps.navUpdated;
   gps.navUpdated = false;
-  gpsAlt = gps.altitude.meters();
-  gpsSpeed = gps.speed.mps();
-  gpsSpeedKph = gps.speed.kmph();
-  gpsSats = gps.satellites.value();
-  gpsHdop = gps.hdop.hdop();        // NAV-PVT/NAV-SOL pDOP (see CONFIG note)
+  gpsSats = sats;
+  gpsHdop = hdop;
+
+  // 1. Velocity Deadband: clamp random noise below 1.5 km/h to true zero
+  if (rawSpeedKph < 1.5f) {
+    rawSpeedKph = 0.0f;
+    rawSpeed = 0.0f;
+  }
+
+  // 2. Validity check: require at least 4 satellites and non-zero coords
+  bool hasValidFix = (sats >= 4 && (fabs(rawLat) > 0.001 || fabs(rawLong) > 0.001));
+
+  static double s_anchorLat = 0.0;
+  static double s_anchorLong = 0.0;
+  static bool   s_isAnchored = false;
+  static uint8_t s_stationaryVotes = 0;
+  static double s_lastValidLat = 0.0;
+  static double s_lastValidLong = 0.0;
+  static unsigned long s_lastFixMs = 0;
+
+  if (hasValidFix && gpsStationaryAnchorEnable) {
+    // 3. Kinematic Outlier Gate: Reject multi-path glitch jumps implying > gpsMaxPlausibleSpeedKph
+    if (s_lastValidLat != 0.0 && s_lastFixMs > 0) {
+      unsigned long dtMs = millis() - s_lastFixMs;
+      if (dtMs > 0 && dtMs < 60000UL) {
+        float dtSec = dtMs / 1000.0f;
+        float dLatM = (float)((rawLat - s_lastValidLat) * 111320.0);
+        float dLonM = (float)((rawLong - s_lastValidLong) * 111320.0 * cosf((float)(rawLat * 0.0174532925)));
+        float distM = sqrtf(dLatM * dLatM + dLonM * dLonM);
+        float impliedSpeedKph = (distM / dtSec) * 3.6f;
+        if (impliedSpeedKph > gpsMaxPlausibleSpeedKph && hdop > 2.5f) {
+          // Outlier detected! Reject jump and keep previous good location
+          rawLat = s_lastValidLat;
+          rawLong = s_lastValidLong;
+        }
+      }
+    }
+
+    // 4. Stationary Anchor Filter (eliminate wander while parked or in weather station mode)
+    bool isStationaryCandidate = (operationalMode == 2) || (rawSpeedKph == 0.0f);
+    if (isStationaryCandidate) {
+      if (s_stationaryVotes < 5) s_stationaryVotes++;
+      if (s_stationaryVotes >= 2 && !s_isAnchored) {
+        s_anchorLat = rawLat;
+        s_anchorLong = rawLong;
+        s_isAnchored = true;
+      }
+    } else {
+      if (s_stationaryVotes > 0) s_stationaryVotes--;
+    }
+
+    if (s_isAnchored) {
+      float dLatM = (float)((rawLat - s_anchorLat) * 111320.0);
+      float dLonM = (float)((rawLong - s_anchorLong) * 111320.0 * cosf((float)(s_anchorLat * 0.0174532925)));
+      float distFromAnchor = sqrtf(dLatM * dLatM + dLonM * dLonM);
+
+      if (distFromAnchor < 25.0f && operationalMode != 1) {
+        // Vehicle is still in parking spot -> clamp position and force speed 0
+        rawLat = s_anchorLat;
+        rawLong = s_anchorLong;
+        rawSpeedKph = 0.0f;
+        rawSpeed = 0.0f;
+      } else if (distFromAnchor >= 25.0f && rawSpeedKph >= 2.5f) {
+        // Legitimate movement away from parking spot -> release anchor!
+        s_isAnchored = false;
+        s_stationaryVotes = 0;
+      }
+    }
+
+    s_lastValidLat = rawLat;
+    s_lastValidLong = rawLong;
+    s_lastFixMs = millis();
+  }
+
+  gpsLat = rawLat;
+  gpsLong = rawLong;
+  gpsAlt = rawAlt;
+  gpsSpeed = rawSpeed;
+  gpsSpeedKph = rawSpeedKph;
 
   verticalVelocityCalculationHandler();
 }

@@ -32,6 +32,22 @@ def calculate_dew_point(temp, humidity):
     except Exception:
         return None
 
+def haversine_distance_m(lat1, lon1, lat2, lon2):
+    """Tính khoảng cách (mét) giữa 2 tọa độ GPS theo công thức Haversine chuẩn trắc địa"""
+    try:
+        R = 6371000.0  # Earth radius in meters
+        phi1 = math.radians(lat1)
+        phi2 = math.radians(lat2)
+        delta_phi = math.radians(lat2 - lat1)
+        delta_lambda = math.radians(lon2 - lon1)
+        a = math.sin(delta_phi / 2.0)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2.0)**2
+        c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+        return R * c
+    except Exception:
+        return 0.0
+
+device_tracker_cache = {}  # Bộ nhớ đệm lọc sai số GPS theo từng thiết bị
+
 def forward_to_hoan_uk(payload):
     try:
         data = json.dumps(payload).encode('utf-8')
@@ -57,23 +73,72 @@ def process_line(line):
         raw_bytes = bytes.fromhex(line)
         pkt = decode_packet(raw_bytes)
         if pkt:
-            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            now_dt = datetime.now()
+            now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+            now_ts = now_dt.timestamp()
             callsign = str(pkt.get("callsign", "CAR01")).upper()
             lat = pkt.get("latitude")
             lon = pkt.get("longitude")
             alt = pkt.get("altitude")
-            speed = pkt.get("speed", 0)
+            raw_speed = pkt.get("speed", 0)
             temp = pkt.get("ext_temperature") if pkt.get("ext_temperature") is not None else pkt.get("temperature")
             humidity = pkt.get("ext_humidity") if pkt.get("ext_humidity") is not None else pkt.get("humidity")
             batt = pkt.get("battery_voltage") if pkt.get("battery_voltage") is not None else pkt.get("batt_voltage")
             pressure = pkt.get("ext_pressure") if pkt.get("ext_pressure") is not None else pkt.get("pressure")
 
-            # Tính điểm sương
+            # 1. Speed Deadband: Triệt tiêu rung giật vận tốc khi đỗ xe
+            speed = raw_speed if raw_speed is not None else 0.0
+            if speed < 1.5:
+                speed = 0.0
+
+            # 2. Tính điểm sương
             dew_point = calculate_dew_point(temp, humidity)
 
-            # Filter out (0,0) unfixed GPS coordinates (searching for satellites)
+            # 3. Lọc tọa độ rỗng (0,0)
             has_valid_fix = (lat is not None and lon is not None and (abs(lat) > 0.001 or abs(lon) > 0.001))
-            is_moving = (speed is not None and speed >= 2.5)
+
+            # 4. Kinematic Outlier Gate & Stationary Anchor Filter
+            cached = device_tracker_cache.get(callsign, {})
+            if has_valid_fix:
+                if cached.get("lat") is not None and cached.get("time") is not None:
+                    dt = now_ts - cached["time"]
+                    if 0 < dt < 600:
+                        dist = haversine_distance_m(cached["lat"], cached["lon"], lat, lon)
+                        implied_speed = (dist / dt) * 3.6
+                        if implied_speed > 180.0:
+                            logging.warning(f"[OUTLIER-REJECTED] {callsign}: Jump {dist:.0f}m in {dt:.1f}s ({implied_speed:.1f} km/h) -> Giữ vị trí cũ")
+                            lat = cached["lat"]
+                            lon = cached["lon"]
+                            if alt is not None and "alt" in cached:
+                                alt = cached["alt"]
+
+                # Neo vị trí tĩnh khi dừng xe
+                if speed == 0.0:
+                    if cached.get("anchor_lat") is not None:
+                        dist_anchor = haversine_distance_m(cached["anchor_lat"], cached["anchor_lon"], lat, lon)
+                        if dist_anchor < 20.0:
+                            lat = cached["anchor_lat"]
+                            lon = cached["anchor_lon"]
+                        else:
+                            cached["anchor_lat"] = lat
+                            cached["anchor_lon"] = lon
+                    else:
+                        cached["anchor_lat"] = lat
+                        cached["anchor_lon"] = lon
+                else:
+                    cached["anchor_lat"] = lat
+                    cached["anchor_lon"] = lon
+
+                device_tracker_cache[callsign] = {
+                    "lat": lat,
+                    "lon": lon,
+                    "alt": alt,
+                    "time": now_ts,
+                    "anchor_lat": cached.get("anchor_lat", lat),
+                    "anchor_lon": cached.get("anchor_lon", lon)
+                }
+
+            is_moving = (speed >= 2.5)
             role_desc = f"TRẠM THỜI TIẾT DI ĐỘNG ({speed:.1f} km/h)" if is_moving else "TRẠM THỜI TIẾT TẠI CHỖ (ĐỨNG YÊN)"
 
             print("=" * 65)
