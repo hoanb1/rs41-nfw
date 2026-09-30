@@ -1,0 +1,16 @@
+[Unit]
+Description=RS41 Horus V3 4FSK Car Tracker Receiver Service
+After=network.target
+
+[Service]
+Type=simple
+User=hoan
+WorkingDirectory=/home/hoan/DATA/rs41-nfw/receiver
+ExecStart=/bin/bash /home/hoan/DATA/rs41-nfw/receiver/start_car_tracker_rx.sh 437.600M 0
+Restart=always
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
