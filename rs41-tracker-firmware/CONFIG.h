@@ -153,12 +153,12 @@ constexpr float horusV3FreqTable[] = {437.6};
 // Payload callsign - each character adds 6 bits to the packet.
 
 constexpr uint16_t horusV3Bdr        = 100;  // Baudrate (bps), default 100
-constexpr int8_t   horusV3RadioPower  = 7;    // Tang cong suat phat toi da: 7 = 20 dBm (100 mW)
+constexpr int8_t   horusV3RadioPower  = 5;    // Cong suat phat on dinh: 5 = 14 dBm (25 mW), tranh sut ap nguon USB/pin yeu
 constexpr bool     horusV3ExtraSensorsEnable = false; // Tat cam bien phu de giam thoi gian phat song moi lan xuong toi thieu (32 bytes frame)
 
 // Shared Horus V2/V3 settings:
 constexpr uint16_t horusBdr          = 100;   // Baudrate (bps)
-constexpr int8_t   horusPreambleLength = 4;   // Preamble length (bytes) - rut ngan de giam thoi gian phat song
+constexpr int8_t   horusPreambleLength = 12;  // Preamble length (bytes) - 12 bytes / 48 symbols cho bo giai ma khoa tan so on dinh
 
 
 /* ============================================================
