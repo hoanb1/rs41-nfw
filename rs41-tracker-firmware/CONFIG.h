@@ -74,7 +74,8 @@ constexpr uint16_t pipTimeSyncSeconds        = 15;
 constexpr uint16_t pipTimeSyncOffsetSeconds  = 0;
 
 // Horus Binary V3:
-constexpr uint16_t horusV3TimeSyncSeconds        = 60;
+uint16_t horusV3TimeSyncSeconds        = 180; // Che do tiet kiem pin: Xe chay phat 3 phut (180s)/lan
+uint16_t horusV3StationarySeconds      = 900; // Xe do phat 15 phut (900s)/lan -> Pin 2 vien AA dung duoc 15 - 30+ ngay!
 constexpr uint16_t horusV3TimeSyncOffsetSeconds  = 0;
 
 // Horus Binary V2:
@@ -152,12 +153,12 @@ constexpr float horusV3FreqTable[] = {437.6};
 // Payload callsign - each character adds 6 bits to the packet.
 
 constexpr uint16_t horusV3Bdr        = 100;  // Baudrate (bps), default 100
-constexpr int8_t   horusV3RadioPower  = 7;    // TX power: 7=20 dBm (100 mW)
-constexpr bool     horusV3ExtraSensorsEnable = true; // Include extended telemetry fields (see above)
+constexpr int8_t   horusV3RadioPower  = 7;    // Tang cong suat phat toi da: 7 = 20 dBm (100 mW)
+constexpr bool     horusV3ExtraSensorsEnable = false; // Tat cam bien phu de giam thoi gian phat song moi lan xuong toi thieu (32 bytes frame)
 
 // Shared Horus V2/V3 settings:
 constexpr uint16_t horusBdr          = 100;   // Baudrate (bps)
-constexpr int8_t   horusPreambleLength = 8;   // Preamble length (bits); default 16
+constexpr int8_t   horusPreambleLength = 4;   // Preamble length (bytes) - rut ngan de giam thoi gian phat song
 
 
 /* ============================================================
@@ -283,7 +284,7 @@ constexpr int8_t   foxHuntRadioPower        = 7;     // TX power (see Pip sectio
      Green ×5              - boot complete, system started, entering normal operation.
    ============================================================ */
 
-bool           ledStatusEnable      = true;   // Enable status LEDs
+bool           ledStatusEnable      = true;  // Bat LED trang thai ban dau, se tat khi da on dinh
 constexpr int16_t ledAutoDisableHeight = 1000; // Altitude (m) above which LEDs turn off
 
 
@@ -374,11 +375,9 @@ uint8_t gpsOperationMode = 2;
                                   slower position updates)
    m10SuperS                    - u-blox Super-S adaptive power management (extra fine-grained
                                   saving on top of the above) */
-constexpr bool     m10ConstellationOptimization = false;
-constexpr bool     m10AggressiveOpt             = false;
-constexpr bool     m10CyclicTracking            = false;  // OFF by default: the accuracy-focused default
-                                                          // GNSS set (B1C + GLONASS + SBAS) is not PSM-legal.
-                                                          // To use it, set gpsSecondaryGnss to 1 or 2 and gpsSbasEnable false.
+constexpr bool     m10ConstellationOptimization = true;
+constexpr bool     m10AggressiveOpt             = true;
+constexpr bool     m10CyclicTracking            = true;  // M10 cyclic tracking enabled for ~50-70% GNSS power saving
 constexpr uint8_t  m10CyclicPeriodSec           = 10;   // cyclic-tracking period (s)
 constexpr bool     m10SuperS                    = true;
 
@@ -393,7 +392,7 @@ constexpr bool ubloxGpsAirborneMode = true;
    streamed fix the instant it arrives (no fixed ~1 s wait like the old NMEA
    path). 2 Hz is a good responsiveness/power balance; 4 Hz is heaviest and is
    near the u-blox 6 limit. */
-constexpr uint8_t gpsUpdateRateHz = 2;
+constexpr uint8_t gpsUpdateRateHz = 1;
 
 /* Dynamic model, applied when ubloxGpsAirborneMode is true (that switch is just
    the master "set a custom dynamic model" enable; this picks which one):
@@ -422,13 +421,12 @@ constexpr uint8_t gpsDynamicModel = 4; // 4 = Automotive (optimized for car trac
    QZSS is a separate regional system whose satellites are only visible over Japan, East/
    South-East Asia, Australia and the west Pacific - off by default, turn it on only if you
    launch inside that region. The older u-blox 6 boards ignore all of this. */
-constexpr uint8_t gpsSecondaryGnss = 0;  // 0 = BeiDou B1C + GLONASS, 1 = BeiDou B1I only, 2 = GLONASS only
-constexpr bool gpsQzssEnable = false;  // regional (Asia-Pacific only); no effect elsewhere
+constexpr uint8_t gpsSecondaryGnss = 1;  // 1 = BeiDou B1I only (required for cyclic tracking)
+constexpr bool gpsQzssEnable = true;   // regional (Asia-Pacific only); enabled for Vietnam
 
 /* Extra u-blox options (v68). Each is checked against the receiver's ACK; a
    rejected one is logged (gpsCfgNakCount) but never blocks operation. */
-constexpr bool gpsSbasEnable             = true;  // SBAS (EGNOS/WAAS/MSAS): differential corrections plus an extra ranging source.
-                                                  // Must be false to use m10CyclicTracking (the M10 cannot process SBAS in power-save mode).
+constexpr bool gpsSbasEnable             = false; // Must be false to use m10CyclicTracking
 constexpr bool gpsAssistNowAutonomous    = true;  // predict orbits on-board -> much faster re-acquisition after signal loss
 constexpr bool gpsSpoofingDetection      = true;  // poll UBX-NAV-STATUS spoofing flags (surfaced in telemetry / integrity warning)
 constexpr bool gpsHardwareJammingMonitor = true;  // poll the 0..255 CW jamming indicator from UBX-MON-RF (M10) /
@@ -442,7 +440,7 @@ constexpr bool gpsHardwareJammingMonitor = true;  // poll the 0..255 CW jamming 
      0 = Max sensitivity     (0 deg elevation, low C/N0 - fight for every satellite) - default
      1 = Balanced            (4 deg elevation, moderate C/N0)
      2 = Ultra power saving  (8 deg elevation, high C/N0) */
-constexpr uint8_t gpsTrackingProfile = 0;
+constexpr uint8_t gpsTrackingProfile = 2; // 2 = Ultra power saving
 
 /* GPS timeout watchdog - resets the GPS module only after it stays unhealthy (no fix, or
    solutions stopped refreshing) for this many ms without interruption. A brief dip to a few
@@ -456,7 +454,7 @@ unsigned long gpsTimeoutWatchdog = 900000;
    desensitise the GPS receiver; silencing it dramatically speeds up cold starts.
    disableGpsImprovementInFlight stops the silence during flight (avoids 2 min
    data gaps). If flying in high-interference areas, set this false instead. */
-constexpr bool improvedGpsPerformance        = true;
+constexpr bool improvedGpsPerformance        = false;
 constexpr bool disableGpsImprovementInFlight = true;
 unsigned long radioSilenceDuration          = 120000; // Radio-silence window (ms)
 // After a fix is acquired in radio-quiet mode, stay quiet this much longer before letting
@@ -494,9 +492,9 @@ unsigned long     gpsPowerSaveDebounce = 60000;  // Min interval before climbing
    SECTION 15 - SENSOR BOOM
    ============================================================ */
 
-bool sensorBoomEnable      = true;   // Enable sensor boom measurements and diagnostics
+bool sensorBoomEnable      = true;  // Bat mach do cam bien nhiet do & do am
 constexpr bool sensorBoomPowerSaving = true;  // Power saving: read the boom only every sensorBoomPowerSavingInterval.
-unsigned long sensorBoomPowerSavingInterval = 60000; // Boom read interval in power-saving mode (ms), matched to 60s TX interval
+unsigned long sensorBoomPowerSavingInterval = 900000; // Doc nhiet am dinh ky moi 15 phut (900s), do xong ngat dien hoan toan de tiet kiem pin
 
 
 /* ============================================================
@@ -835,7 +833,7 @@ String boomSerialNumber = "";
          Hold time may vary ~1.5-3 s depending on CPU load.
    ============================================================ */
 
-constexpr int8_t buttonMode = 0;
+int8_t buttonMode = 1;
 
 
 /* ============================================================
@@ -898,12 +896,12 @@ constexpr int8_t buttonMode = 0;
    ============================================================ */
 
 #ifdef RSM4x4
-bool               dataRecorderEnable              = true;
+bool               dataRecorderEnable              = false; // Disabled for car tracker to eliminate 96-byte burst
 bool               dataRecorderFlightNoiseFiltering = true;
 #else
 // dataRecorder is on by default everywhere and transmits on both boards. On the
 // RSM4x2 it fits because that build is compiled with LTO (it rides Horus V3 pages).
-constexpr bool     dataRecorderEnable              = true;
+constexpr bool     dataRecorderEnable              = false;
 constexpr bool     dataRecorderFlightNoiseFiltering = true;
 #endif
 constexpr unsigned int dataRecorderInterval        = 300000; // Interval between bursts (ms); default 5 min

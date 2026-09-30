@@ -1,0 +1,25 @@
+# Build and compilation outputs
+build/
+*.bin
+*.elf
+*.hex
+*.o
+*.map
+*.d
+*.a
+
+# Arduino CLI cache
+.cache/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+
+# Editor & OS files
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store

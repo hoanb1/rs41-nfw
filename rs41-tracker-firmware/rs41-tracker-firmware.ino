@@ -237,6 +237,7 @@ char    ozoneDbgRaw[64] = "";         // last raw xdata= frame content (for debu
 uint8_t ozoneDbgLen     = 0;          // length of last received raw frame
 uint32_t ozoneRxByteTotal = 0;        // total bytes received on xdata RX port
 uint16_t ozoneFrameTotal = 0;         // count of successfully parsed OIF411 frames
+bool forceTxRequested = false;        // Triggered by button double-click or CLI CMD:TX
 float lastGpsAlt;
 unsigned long lastGpsAltMillisTime = 1;
 float vVCalc;
@@ -1050,6 +1051,7 @@ int buildHorusV3Packet(char* uncoded_buffer){
     if (!horusV3ExtraSensorsEnable) {
       asnMessage.exist.extraSensors = false;
       asnMessage.temperatureCelsius_x10.exist.custom1 = false;
+      asnMessage.exist.ascentRateCentimetersPerSecond = false; // Khong can thiet cho oto, giup goi tin duoi 30 bytes de khoa frame 32 bytes
     }
 
     if (sensorBoomEnable == false) {
@@ -1488,7 +1490,7 @@ void hardwarePowerShutdown() {
   digitalWrite(PSU_SHUTDOWN_PIN, HIGH);
 }
 
-void buttonHandlerSimplified() {  //no special effects compared to normal button handler
+void buttonHandlerSimplified() {  
   if (analogRead(VBTN_PIN) + 50 > analogRead(VBAT_PIN) && analogRead(VBAT_PIN) > 80) {
     if (buttonMode > 0) {
       hardwarePowerShutdown();
@@ -1497,70 +1499,154 @@ void buttonHandlerSimplified() {  //no special effects compared to normal button
 }
 
 void buttonHandler() {
-  if (analogRead(VBTN_PIN) + 50 > analogRead(VBAT_PIN) && analogRead(VBAT_PIN) > 80) {  //if button pressed (button measurement pin higher than battery voltage) and the sonde is powered on with batteries (so the sonde won't go crazy when plugged for example into a programmer)
-    if (buttonMode == 0) {
+  if (buttonMode == 0) return;
 
-    } else if (buttonMode == 1) {
-      hardwarePowerShutdown();
-    } else if (buttonMode == 2) {
-      while (btnCounter < 3 && analogRead(VBTN_PIN) + 50 > analogRead(VBAT_PIN)) {
-        greenLed();
-        delay(400);
-        redLed();
-        delay(400);
-        bothLedOff();
-        if (xdataPortMode == 1) {
-          xdataSerial.print("*");
+  // Pin check: button is pressed if VBTN pin voltage approaches or exceeds VBAT pin voltage
+  // and battery voltage is sane (> 80 ADC counts, so it won't trigger while programmer-powered only)
+  bool isPressed = (analogRead(VBTN_PIN) + 50 > analogRead(VBAT_PIN) && analogRead(VBAT_PIN) > 80);
+
+  static unsigned long btnPressStartTime = 0;
+  static unsigned long btnReleaseTime = 0;
+  static uint8_t clickCount = 0;
+  static bool wasPressed = false;
+  static bool shutdownTriggered = false;
+
+  unsigned long now = millis();
+
+  if (isPressed) {
+    if (!wasPressed) {
+      // Button just pressed down
+      wasPressed = true;
+      btnPressStartTime = now;
+      shutdownTriggered = false;
+    } else {
+      // Button is being held down
+      unsigned long holdDuration = now - btnPressStartTime;
+
+      if (holdDuration >= 2500) {
+        // HELD FOR >= 2.5 SECONDS -> SHUTDOWN!
+        if (!shutdownTriggered) {
+          shutdownTriggered = true;
+          if (xdataPortMode == 1) {
+            xdataSerial.println(F("[btn]: Hold > 2.5s detected -> SHUTDOWN"));
+          }
+          hardwarePowerShutdown();
         }
-        btnCounter++;
+      } else if (holdDuration >= 1000) {
+        // Warning feedback while holding: rapid red blinks to alert user shutdown is approaching
+        if ((holdDuration / 150) % 2 == 0) {
+          redLed();
+        } else {
+          bothLedOff();
+        }
       }
+    }
+  } else {
+    if (wasPressed) {
+      // Button just released
+      wasPressed = false;
+      bothLedOff();
+      unsigned long pressDuration = now - btnPressStartTime;
 
-      if (btnCounter == 1) {
-        //empty, except canceling some functions:
+      if (!shutdownTriggered && pressDuration < 1000) {
+        // Legitimate quick click
+        clickCount++;
+        btnReleaseTime = now;
+      }
+    }
+  }
 
-        if (improvedGpsPerformance && gpsSats < 4 && gpsOperationMode != 0 && !cancelGpsImprovement) {  //disable improvedGpsPerformance wait
-          cancelGpsImprovement = true;
+  // Multi-click window timeout evaluator (wait 400ms after release)
+  static uint8_t powerProfile = 2; // Default: Profile 2 ECO (180s move, 900s stop)
+
+  if (clickCount > 0 && !wasPressed && (now - btnReleaseTime > 400)) {
+    if (clickCount >= 3) {
+      // TRIPLE CLICK -> CYCLE POWER PROFILES (1: Active, 2: Eco, 3: Ultra)
+      powerProfile++;
+      if (powerProfile > 3) powerProfile = 1;
+
+      if (powerProfile == 1) {
+        // PROFILE 1: ACTIVE TRACKING (60s move, 300s stop, boom 300s) -> ~7-10 days battery
+        horusV3TimeSyncSeconds = 60;
+        horusV3StationarySeconds = 300;
+        sensorBoomEnable = true;
+        sensorBoomPowerSavingInterval = 300000;
+        setRadioPower(7); // 100mW
+        if (xdataPortMode == 1) xdataSerial.println(F("[btn]: Switched to Profile 1 (ACTIVE: 60s/300s, boom 5m, ~10d)"));
+        // Flash 1 long green
+        greenLed(); delay(400); bothLedOff();
+      } else if (powerProfile == 2) {
+        // PROFILE 2: ECO BALANCED (180s move, 900s stop, boom 900s) -> 15-25 days battery
+        horusV3TimeSyncSeconds = 180;
+        horusV3StationarySeconds = 900;
+        sensorBoomEnable = true;
+        sensorBoomPowerSavingInterval = 900000;
+        setRadioPower(7); // 100mW
+        if (xdataPortMode == 1) xdataSerial.println(F("[btn]: Switched to Profile 2 (ECO: 180s/900s, boom 15m, ~20d)"));
+        // Flash 2 green
+        for (int i = 0; i < 2; i++) { greenLed(); delay(150); bothLedOff(); delay(100); }
+      } else if (powerProfile == 3) {
+        // PROFILE 3: ULTRA DEEP-SAVE (300s move, 1800s / 30m stop, boom 30m) -> ~30-60 days battery
+        horusV3TimeSyncSeconds = 300;
+        horusV3StationarySeconds = 1800;
+        sensorBoomEnable = true;
+        sensorBoomPowerSavingInterval = 1800000;
+        setRadioPower(6); // 50mW
+        if (xdataPortMode == 1) xdataSerial.println(F("[btn]: Switched to Profile 3 (ULTRA: 300s/1800s, boom 30m, ~45d)"));
+        // Flash 3 green
+        for (int i = 0; i < 3; i++) { greenLed(); delay(150); bothLedOff(); delay(100); }
+      }
+    } else if (clickCount == 2) {
+      // DOUBLE CLICK DETECTED -> FORCE TELEMETRY TRANSMISSION IMMEDIATELY!
+      if (xdataPortMode == 1) {
+        xdataSerial.println(F("[btn]: Double-click -> FORCE TX NOW!"));
+      }
+      // Visual feedback: 3 rapid orange/green blinks
+      for (int i = 0; i < 3; i++) {
+        greenLed();
+        delay(70);
+        bothLedOff();
+        delay(70);
+      }
+      forceTxRequested = true;
+    } else if (clickCount == 1) {
+      // SINGLE CLICK DETECTED -> SHOW STATUS ON LED FOR 2 SECONDS
+      if (xdataPortMode == 1) {
+        xdataSerial.print(F("[btn]: Single-click -> Status check (Profile: "));
+        xdataSerial.print(powerProfile);
+        xdataSerial.print(F(", Sats: "));
+        xdataSerial.print(gpsSats);
+        xdataSerial.print(F(", Bat: "));
+        xdataSerial.print(readBatteryVoltage());
+        xdataSerial.println(F("V)"));
+      }
+      if (vBatWarn || err) {
+        // Red blink if error or low battery
+        for (int i = 0; i < 2; i++) {
           redLed();
           delay(200);
           bothLedOff();
+          delay(150);
         }
-
-      } else if (btnCounter == 2) {
-        if (radioEnablePA == true) {
-          radioEnablePA = false;
-
-          for (int i = 0; i < btnCounter; i++) {
-            redLed();
-            delay(50);
-            bothLedOff();
-            delay(50);
-          }
-
-          if (xdataPortMode == 1) {
-            xdataSerial.println("Radio PA disabled");
-          }
-
-        } else {
-          radioEnablePA = true;
-
-          for (int i = 0; i < btnCounter; i++) {
-            greenLed();
-            delay(50);
-            bothLedOff();
-            delay(50);
-          }
-
-          if (xdataPortMode == 1) {
-            xdataSerial.println("Radio PA enabled");
-          }
+      } else if (gpsSats < 4) {
+        // Orange blink if searching for GPS fix
+        for (int i = 0; i < 2; i++) {
+          orangeLed();
+          delay(200);
+          bothLedOff();
+          delay(150);
         }
-
-      } else if (btnCounter == 3) {
-        hardwarePowerShutdown();
+      } else {
+        // Green blink if all OK and GPS locked!
+        for (int i = 0; i < 2; i++) {
+          greenLed();
+          delay(200);
+          bothLedOff();
+          delay(150);
+        }
       }
-
-      btnCounter = 0;
     }
+    clickCount = 0;
   }
 }
 
@@ -1619,7 +1705,8 @@ void deviceStatusHandler() {
       } else if (noGpsFix) {
         orangeLed();
       } else {
-        greenLed();
+        // Da on dinh (da co GPS fix, khong co loi) -> Tat den LED hoan toan de tiet kiem pin
+        bothLedOff();
       }
     }
   } else {
@@ -5396,8 +5483,12 @@ void schedulerLoop() {
   }
 
   unsigned long nowMs = sch_sysMs;
+  uint16_t curHorusV3Iv = horusV3TimeSyncSeconds;
+  if (gpsSats >= 4 && gpsSpeedKph < 2.5f) {
+    curHorusV3Iv = horusV3StationarySeconds;
+  }
   if (pipEnable     && sch_nextPipMs     == 0) sch_nextPipMs     = sch_nextSlot(nowMs, pipTimeSyncSeconds,     pipTimeSyncOffsetSeconds);
-  if (horusV3Enable && sch_nextHorusV3Ms == 0) sch_nextHorusV3Ms = sch_nextSlot(nowMs, horusV3TimeSyncSeconds, horusV3TimeSyncOffsetSeconds);
+  if (horusV3Enable && sch_nextHorusV3Ms == 0) sch_nextHorusV3Ms = sch_nextSlot(nowMs, curHorusV3Iv,           horusV3TimeSyncOffsetSeconds);
   #ifdef RSM4x4
   if (horusEnable   && sch_nextHorusMs   == 0) sch_nextHorusMs   = sch_nextSlot(nowMs, horusTimeSyncSeconds,   horusTimeSyncOffsetSeconds);
   #endif
@@ -5444,15 +5535,17 @@ void schedulerLoop() {
     //   power saving ON  - energy policy: read strictly every
     //     sensorBoomPowerSavingInterval (default 30s), independent of CPU load and TX
     //     timing. This deliberately accepts older data to spend less on the boom.
-    if (sensorBoomPowerSaving) {
-      if (boomAge >= sensorBoomPowerSavingInterval) {
-        sensorBoomHandler();
-        sch_lastSensorBoom = millis();
-      }
-    } else {
-      if (!txImminent || boomStale) {
-        sensorBoomHandler();
-        sch_lastSensorBoom = millis();
+    if (sensorBoomEnable) {
+      if (sensorBoomPowerSaving) {
+        if (boomAge >= sensorBoomPowerSavingInterval) {
+          sensorBoomHandler();
+          sch_lastSensorBoom = millis();
+        }
+      } else {
+        if (!txImminent || boomStale) {
+          sensorBoomHandler();
+          sch_lastSensorBoom = millis();
+        }
       }
     }
 
@@ -5568,7 +5661,7 @@ void schedulerLoop() {
           // alive by sending the $NFW frame (short) up to ~300 ms before the slot - without
           // this the interface froze for the whole wait. sch_tickTime() after each blocking
           // call keeps the slot maths honest.
-          if (nearestMs > sch_sysMs + 1000UL && (millis() - sch_lastSensorBoom) > 2000UL) {
+          if (sensorBoomEnable && nearestMs > sch_sysMs + 1000UL && (!sensorBoomPowerSaving || (millis() - sch_lastSensorBoom) >= sensorBoomPowerSavingInterval)) {
             sensorBoomHandler(); sch_lastSensorBoom = millis();
             pressureHandler();   sch_lastPressure   = millis();
             sch_tickTime();
@@ -5627,8 +5720,13 @@ void schedulerLoop() {
         }
       };
 
+      uint16_t curHorusV3Iv = horusV3TimeSyncSeconds;
+      if (gpsSats >= 4 && gpsSpeedKph < 2.5f) {
+        curHorusV3Iv = horusV3StationarySeconds;
+      }
+
       checkMode(pipEnable,     sch_nextPipMs,     pipTimeSyncSeconds,     pipTimeSyncOffsetSeconds,     0);
-      checkMode(horusV3Enable, sch_nextHorusV3Ms, horusV3TimeSyncSeconds, horusV3TimeSyncOffsetSeconds, 1);
+      checkMode(horusV3Enable, sch_nextHorusV3Ms, curHorusV3Iv,           horusV3TimeSyncOffsetSeconds, 1);
       #ifdef RSM4x4
       checkMode(horusEnable,   sch_nextHorusMs,   horusTimeSyncSeconds,   horusTimeSyncOffsetSeconds,   2);
       #endif
@@ -5638,9 +5736,18 @@ void schedulerLoop() {
       #endif
       checkMode(morseEnable,   sch_nextMorseMs,   morseTimeSyncSeconds,   morseTimeSyncOffsetSeconds,   5);
 
+      if (forceTxRequested && horusV3Enable) {
+        forceTxRequested = false;
+        pickIdx = 1; // Force Horus V3
+        pickMs = nowMs;
+        if (xdataPortMode == 1) {
+          xdataSerial.println(F("[sch]: Immediate FORCE TX triggered!"));
+        }
+      }
+
       if (pickIdx >= 0) {
         if (!burstRefreshed) {
-          if ((millis() - sch_lastSensorBoom) > 2000UL) {
+          if (sensorBoomEnable && (!sensorBoomPowerSaving || (millis() - sch_lastSensorBoom) >= sensorBoomPowerSavingInterval)) {
             sensorBoomHandler(); sch_lastSensorBoom = millis();
           }
           if ((millis() - sch_lastPressure) > 2000UL) {
@@ -5665,7 +5772,7 @@ void schedulerLoop() {
 
         switch (pickIdx) {
           case 0: pipTx();     sch_tickTime(); sch_nextPipMs     = sch_nextSlot(sch_sysMs, pipTimeSyncSeconds,     pipTimeSyncOffsetSeconds);     break;
-          case 1: horusV3Tx(); sch_tickTime(); sch_nextHorusV3Ms = sch_nextSlot(sch_sysMs, horusV3TimeSyncSeconds, horusV3TimeSyncOffsetSeconds); break;
+          case 1: horusV3Tx(); sch_tickTime(); sch_nextHorusV3Ms = sch_nextSlot(sch_sysMs, curHorusV3Iv,           horusV3TimeSyncOffsetSeconds); break;
           #ifdef RSM4x4
           case 2: horusTx();   sch_tickTime(); sch_nextHorusMs   = sch_nextSlot(sch_sysMs, horusTimeSyncSeconds,   horusTimeSyncOffsetSeconds);   break;
           #endif
@@ -5697,9 +5804,156 @@ void schedulerLoop() {
 
 }
 
-// Runs a GCS command found in a line (from "CMD:" onward). Shared by xdataCmdDrain
-// (mode 1) and the ozone parser (mode 3). Returns true if a command matched.
+// Runs a GCS command found in a line (from "CMD:", "SET:", "STATUS", "HELP").
 bool runXdataCommand(const char* line) {
+  // Trim leading whitespace
+  while (*line == ' ' || *line == '\t') line++;
+
+  if (strcasecmp(line, "HELP") == 0 || strcmp(line, "?") == 0) {
+    xdataSerial.println(F("\n==================== RS41 CLI HELP ===================="));
+    xdataSerial.println(F(" STATUS            : In trang thai chi tiet (GPS, Pin, RF, Chu ky, Nhiet Am)"));
+    xdataSerial.println(F(" CMD:TX            : Ep phat 1 goi tin vi tri ngay lap tuc"));
+    xdataSerial.println(F(" CMD:REBOOT        : Khoi dong lai STM32"));
+    xdataSerial.println(F(" CMD:SHUTDOWN      : Tat nguon hoan toan qua MOSFET"));
+    xdataSerial.println(F(" SET:PROFILE=<1-3> : Chon profile pin (1:Active ~10d, 2:Eco ~20d, 3:Ultra ~45d)"));
+    xdataSerial.println(F(" SET:FREQ=<MHz>    : Cai tan so phat (vi du: SET:FREQ=437.600)"));
+    xdataSerial.println(F(" SET:POWER=<0-7>   : Cong suat RF (0=1dBm, 7=20dBm/100mW)"));
+    xdataSerial.println(F(" SET:IV_MOVE=<sec> : Chu ky khi xe di chuyen (vi du: SET:IV_MOVE=180)"));
+    xdataSerial.println(F(" SET:IV_STOP=<sec> : Chu ky khi xe dung yen (vi du: SET:IV_STOP=900)"));
+    xdataSerial.println(F(" SET:BOOM_IV=<sec> : Chu ky doc cam bien nhiet am (vi du: SET:BOOM_IV=900)"));
+    xdataSerial.println(F(" SET:BOOM=<0/1>    : Bat/tat mach do cam bien nhiet am"));
+    xdataSerial.println(F("========================================================\n"));
+    return true;
+  }
+
+  if (strncmp(line, "SET:PROFILE=", 12) == 0) {
+    int prof = atoi(line + 12);
+    if (prof == 1) {
+      horusV3TimeSyncSeconds = 60;
+      horusV3StationarySeconds = 300;
+      sensorBoomEnable = true;
+      sensorBoomPowerSavingInterval = 300000;
+      setRadioPower(7);
+      xdataSerial.println(F("[cli]: OK - Profile 1 ACTIVE applied (60s move, 300s stop, boom 5m, ~10d)"));
+    } else if (prof == 2) {
+      horusV3TimeSyncSeconds = 180;
+      horusV3StationarySeconds = 900;
+      sensorBoomEnable = true;
+      sensorBoomPowerSavingInterval = 900000;
+      setRadioPower(7);
+      xdataSerial.println(F("[cli]: OK - Profile 2 ECO applied (180s move, 900s stop, boom 15m, ~20d)"));
+    } else if (prof == 3) {
+      horusV3TimeSyncSeconds = 300;
+      horusV3StationarySeconds = 1800;
+      sensorBoomEnable = true;
+      sensorBoomPowerSavingInterval = 1800000;
+      setRadioPower(6);
+      xdataSerial.println(F("[cli]: OK - Profile 3 ULTRA applied (300s move, 1800s stop, boom 30m, ~45d)"));
+    } else {
+      xdataSerial.println(F("[cli]: ERR - Profile must be 1 (Active), 2 (Eco), or 3 (Ultra)"));
+    }
+    return true;
+  }
+
+  if (strncmp(line, "SET:BOOM_IV=", 12) == 0) {
+    int iv = atoi(line + 12);
+    if (iv >= 10 && iv <= 7200) {
+      sensorBoomPowerSavingInterval = (unsigned long)iv * 1000UL;
+      xdataSerial.print(F("[cli]: OK - Sensor boom interval set to "));
+      xdataSerial.print(iv);
+      xdataSerial.println(F(" s"));
+    } else {
+      xdataSerial.println(F("[cli]: ERR - Boom interval must be 10 - 7200 s"));
+    }
+    return true;
+  }
+
+  if (strncmp(line, "SET:BOOM=", 9) == 0) {
+    int b = atoi(line + 9);
+    sensorBoomEnable = (b > 0);
+    if (!sensorBoomEnable) selectSensorBoom(0, 0);
+    xdataSerial.print(F("[cli]: OK - Sensor boom "));
+    xdataSerial.println(sensorBoomEnable ? F("ENABLED") : F("DISABLED (Power saved)"));
+    return true;
+  }
+
+  if (strcasecmp(line, "STATUS") == 0) {
+    xdataSerial.println(F("\n----------------- RS41 SYSTEM STATUS -----------------"));
+    xdataSerial.print(F("Callsgn: ")); xdataSerial.print(HORUS_V3_CALLSIGN);
+    xdataSerial.print(F(" | Freq: ")); xdataSerial.print(horusV3FreqTable[0], 4); xdataSerial.println(F(" MHz"));
+    xdataSerial.print(F("RF Power: ")); xdataSerial.print(horusV3RadioPower); xdataSerial.println(F(" (7=100mW)"));
+    xdataSerial.print(F("Interval Move: ")); xdataSerial.print(horusV3TimeSyncSeconds);
+    xdataSerial.print(F("s | Stop: ")); xdataSerial.print(horusV3StationarySeconds); xdataSerial.println(F("s"));
+    xdataSerial.print(F("Sensor Boom: ")); xdataSerial.print(sensorBoomEnable ? F("ON") : F("OFF"));
+    xdataSerial.print(F(" | Boom Interval: ")); xdataSerial.print(sensorBoomPowerSavingInterval / 1000UL); xdataSerial.println(F("s"));
+    xdataSerial.print(F("Temp: ")); xdataSerial.print(mainTemperatureValue, 1);
+    xdataSerial.print(F(" C | Humidity: ")); xdataSerial.print(humidityValue, 1); xdataSerial.println(F(" %"));
+    xdataSerial.print(F("GPS Sats: ")); xdataSerial.print(gpsSats);
+    xdataSerial.print(F(" | Fix: ")); xdataSerial.print(gpsSats >= 4 ? F("YES") : F("SEARCHING"));
+    xdataSerial.print(F(" | Spd: ")); xdataSerial.print(gpsSpeedKph, 1); xdataSerial.println(F(" km/h"));
+    xdataSerial.print(F("Position: ")); xdataSerial.print(gpsLat, 6); xdataSerial.print(F(", ")); xdataSerial.println(gpsLong, 6);
+    xdataSerial.print(F("Battery : ")); xdataSerial.print(readBatteryVoltage(), 2); xdataSerial.println(F(" V"));
+    xdataSerial.println(F("------------------------------------------------------\n"));
+    return true;
+  }
+
+  if (strncmp(line, "CMD:TX", 6) == 0) {
+    forceTxRequested = true;
+    xdataSerial.println(F("[cli]: OK - Force TX triggered"));
+    return true;
+  }
+
+  if (strncmp(line, "SET:FREQ=", 9) == 0) {
+    float f = atof(line + 9);
+    if (f >= 400.0f && f <= 450.0f) {
+      setRadioFrequency(f);
+      xdataSerial.print(F("[cli]: OK - Frequency changed to "));
+      xdataSerial.print(f, 4);
+      xdataSerial.println(F(" MHz"));
+    } else {
+      xdataSerial.println(F("[cli]: ERR - Freq out of range (400 - 450 MHz)"));
+    }
+    return true;
+  }
+
+  if (strncmp(line, "SET:POWER=", 10) == 0) {
+    int p = atoi(line + 10);
+    if (p >= 0 && p <= 7) {
+      setRadioPower(p);
+      xdataSerial.print(F("[cli]: OK - Radio power set to "));
+      xdataSerial.println(p);
+    } else {
+      xdataSerial.println(F("[cli]: ERR - Power must be 0 - 7"));
+    }
+    return true;
+  }
+
+  if (strncmp(line, "SET:IV_MOVE=", 12) == 0) {
+    int iv = atoi(line + 12);
+    if (iv >= 5 && iv <= 3600) {
+      horusV3TimeSyncSeconds = iv;
+      xdataSerial.print(F("[cli]: OK - Moving interval set to "));
+      xdataSerial.print(iv);
+      xdataSerial.println(F(" s"));
+    } else {
+      xdataSerial.println(F("[cli]: ERR - Interval must be 5 - 3600 s"));
+    }
+    return true;
+  }
+
+  if (strncmp(line, "SET:IV_STOP=", 12) == 0) {
+    int iv = atoi(line + 12);
+    if (iv >= 5 && iv <= 3600) {
+      horusV3StationarySeconds = iv;
+      xdataSerial.print(F("[cli]: OK - Stationary interval set to "));
+      xdataSerial.print(iv);
+      xdataSerial.println(F(" s"));
+    } else {
+      xdataSerial.println(F("[cli]: ERR - Interval must be 5 - 3600 s"));
+    }
+    return true;
+  }
+
   const char* cmd = strstr(line, "CMD:");
   if (cmd == NULL) return false;
 
@@ -5713,8 +5967,6 @@ bool runXdataCommand(const char* line) {
     xdataSerial.println(F("[info]: Starting reconditioning..."));
     reconditioningPhase();
 #if defined(RSM4x4)
-  // NFW-calibration commands: compiled on RSM4x4 / RSM4x5 only. RSM4x2 / RSM4x1 use
-  // factory (Vaisala) calibration, so the NFW calibration routines are not built there.
   } else if (strncmp(cmd, "CMD:ZEROHUM", 11) == 0 && sensorBoomEnable && humidityModuleEnable) {
     xdataSerial.println(F("[info]: Starting zero-humidity calibration..."));
     zeroHumidityCheck();
@@ -5729,10 +5981,8 @@ bool runXdataCommand(const char* line) {
     humidityCalibrationDebug = true;
     humidityDeltaCalibrationDebug();
     humidityCalibrationDebug = false;
-    setStage(_prevStage);   // restore the pre-debug stage so the stage leaves 25/26 and Ground Control can reopen the dialog next time
+    setStage(_prevStage);
 #endif
-  // Factory humidity check - re-runnable on both board families. The temperature check is
-  // start-up only: by now the humidity check may have heated the boom, so a fresh comparison is invalid.
   } else if (strncmp(cmd, "CMD:HUMCHECK", 12) == 0 && sensorBoomEnable && humidityModuleEnable) {
     xdataSerial.println(F("[info]: Starting humidity CHECK..."));
     humidityCheck();
@@ -5748,7 +5998,7 @@ bool runXdataCommand(const char* line) {
 // Mode-1 command drain (mode 3 drains the shared RX stream in ozoneHandler instead).
 void xdataCmdDrain() {
   if (xdataPortMode != 1) return;
-  static char _cmdBuf[40];
+  static char _cmdBuf[64];
   static uint8_t _cmdLen = 0;
   while (xdataSerial.available()) {
     char c = (char)xdataSerial.read();

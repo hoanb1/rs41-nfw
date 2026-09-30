@@ -48,21 +48,44 @@ def process_line(line):
             lon = pkt.get("longitude")
             alt = pkt.get("altitude")
             speed = pkt.get("speed", 0)
-            temp = pkt.get("temp")
-            batt = pkt.get("batt_voltage")
-            pressure = pkt.get("pressure")
+            temp = pkt.get("ext_temperature") if pkt.get("ext_temperature") is not None else pkt.get("temperature")
+            humidity = pkt.get("ext_humidity") if pkt.get("ext_humidity") is not None else pkt.get("humidity")
+            batt = pkt.get("battery_voltage") if pkt.get("battery_voltage") is not None else pkt.get("batt_voltage")
+            pressure = pkt.get("ext_pressure") if pkt.get("ext_pressure") is not None else pkt.get("pressure")
+
+            # Filter out (0,0) unfixed GPS coordinates (searching for satellites)
+            has_valid_fix = (lat is not None and lon is not None and (abs(lat) > 0.001 or abs(lon) > 0.001))
 
             print("=" * 60)
             print(f"[{now_str}] NHAN GOI TELEMETRY TU XE: {callsign}")
-            if lat is not None and lon is not None:
+            if has_valid_fix:
                 print(f"  Toa do: {lat:.6f}, {lon:.6f} | Do cao: {alt} m | Toc do: {speed} km/h")
+            else:
+                print(f"  Toa do: Dang cho khoa GPS fix ve tinh (indoor)... | Dien ap: {batt} V")
             if temp is not None:
-                print(f"  Nhiet do khoang xe: {temp:.1f} °C")
+                print(f"  Nhiet do: {temp:.1f} °C")
+            if humidity is not None:
+                print(f"  Do am: {humidity:.1f} %")
             if pressure is not None:
                 print(f"  Khi ap: {pressure:.1f} hPa")
             if batt is not None:
                 print(f"  Dien ap nguon/pin: {batt:.2f} V")
             print("=" * 60, flush=True)
+
+            loc_dict = {
+                "speed": speed,
+                "sats": pkt.get("satellites", pkt.get("sats", 0)),
+                "gps_fix": has_valid_fix
+            }
+            if has_valid_fix:
+                loc_dict["lat"] = lat
+                loc_dict["lon"] = lon
+                loc_dict["alt"] = alt
+            else:
+                # Strip 0,0 from raw pkt to prevent accidental null-island injection
+                pkt.pop("latitude", None)
+                pkt.pop("longitude", None)
+                pkt.pop("altitude", None)
 
             # Build Universal Payload for hoan.uk
             universal_payload = {
@@ -70,15 +93,10 @@ def process_line(line):
                 "deviceType": "vehicle_tracker",
                 "protocol": "horus_v3",
                 "timestamp": datetime.now().isoformat(),
-                "location": {
-                    "lat": lat,
-                    "lon": lon,
-                    "alt": alt,
-                    "speed": speed,
-                    "sats": pkt.get("sats", 10)
-                },
+                "location": loc_dict,
                 "environment": {
                     "temperature": temp,
+                    "humidity": humidity,
                     "pressure": pressure
                 },
                 "system": {
@@ -95,8 +113,8 @@ def process_line(line):
             # 2. Append local log
             with open("/home/pi/car_tracker.log", "a", encoding="utf-8") as f:
                 f.write(json.dumps(universal_payload, default=str) + "\n")
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning(f"[DECODE-ERR] {e}")
 
 def main():
     logging.info("Car Tracker Horus V3 Decoder san sang nhan du lieu tu stdin...")
