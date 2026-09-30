@@ -93,6 +93,7 @@ NfwTxScratch g_txScratch;
  * ============================================================
  */
 #include "CONFIG.h"
+#include "chacha20.h"
 
 //==== Firmware-internal definitions:
 #ifdef RSM4x4
@@ -974,6 +975,100 @@ int buildHorusV3Packet(char* uncoded_buffer){
 
   // Increment packet count
   horusV3PacketCount++;
+
+  if (iotEncryptionEnable) {
+    // 1. Pack 23-byte IoT telemetry plaintext
+    uint8_t plaintext[23];
+    int32_t lat_scaled = (int32_t)(gpsLat * 10000000.0f);
+    int32_t lon_scaled = (int32_t)(gpsLong * 10000000.0f);
+    int16_t alt_val = (int16_t)constrain((int32_t)gpsAlt, -1000, 32000);
+    uint16_t speed_scaled = (uint16_t)constrain((int32_t)(gpsSpeedKph * 10.0f), 0, 65535);
+    uint8_t sats_val = (uint8_t)constrain((int32_t)gpsSats, 0, 255);
+    int16_t temp_scaled = (int16_t)constrain((int32_t)(mainTemperatureValue * 100.0f), -32000, 32000);
+    uint8_t hum_val = (uint8_t)constrain((int32_t)humidityValue, 0, 100);
+    uint16_t press_scaled = (uint16_t)constrain((int32_t)(pressureValue * 10.0f), 0, 65535);
+    uint16_t batt_val = (uint16_t)constrain((int32_t)(readBatteryVoltage() * 1000.0f), 0, 65535);
+
+    bool is_valid_fix = ((gpsLat > 0.0001f || gpsLat < -0.0001f) || (gpsLong > 0.0001f || gpsLong < -0.0001f)) && (gpsSats >= 3);
+    bool is_moving = (gpsSpeedKph >= 2.0f);
+    uint8_t flags = 0;
+    if (is_moving) flags |= 0x01;
+    if (!is_moving && is_valid_fix) flags |= 0x02;
+    if (is_valid_fix) flags |= 0x04;
+
+    plaintext[0] = (uint8_t)((lat_scaled >> 24) & 0xFF);
+    plaintext[1] = (uint8_t)((lat_scaled >> 16) & 0xFF);
+    plaintext[2] = (uint8_t)((lat_scaled >> 8) & 0xFF);
+    plaintext[3] = (uint8_t)(lat_scaled & 0xFF);
+
+    plaintext[4] = (uint8_t)((lon_scaled >> 24) & 0xFF);
+    plaintext[5] = (uint8_t)((lon_scaled >> 16) & 0xFF);
+    plaintext[6] = (uint8_t)((lon_scaled >> 8) & 0xFF);
+    plaintext[7] = (uint8_t)(lon_scaled & 0xFF);
+
+    plaintext[8] = (uint8_t)((alt_val >> 8) & 0xFF);
+    plaintext[9] = (uint8_t)(alt_val & 0xFF);
+
+    plaintext[10] = (uint8_t)((speed_scaled >> 8) & 0xFF);
+    plaintext[11] = (uint8_t)(speed_scaled & 0xFF);
+
+    plaintext[12] = sats_val;
+
+    plaintext[13] = (uint8_t)((temp_scaled >> 8) & 0xFF);
+    plaintext[14] = (uint8_t)(temp_scaled & 0xFF);
+
+    plaintext[15] = hum_val;
+
+    plaintext[16] = (uint8_t)((press_scaled >> 8) & 0xFF);
+    plaintext[17] = (uint8_t)(press_scaled & 0xFF);
+
+    plaintext[18] = (uint8_t)((batt_val >> 8) & 0xFF);
+    plaintext[19] = (uint8_t)(batt_val & 0xFF);
+
+    plaintext[20] = flags;
+    plaintext[21] = 0x00;
+    plaintext[22] = 0x00;
+
+    // 2. Build 12-byte Nonce
+    uint8_t nonce[12] = {0};
+    nonce[0] = (uint8_t)(iotDeviceId & 0xFF);
+    nonce[1] = (uint8_t)((iotDeviceId >> 8) & 0xFF);
+    nonce[2] = (uint8_t)((iotDeviceId >> 16) & 0xFF);
+    nonce[3] = (uint8_t)((iotDeviceId >> 24) & 0xFF);
+
+    nonce[4] = (uint8_t)(horusV3PacketCount & 0xFF);
+    nonce[5] = (uint8_t)((horusV3PacketCount >> 8) & 0xFF);
+
+    // 3. Encrypt 23 bytes in-place using ChaCha20
+    chacha20_crypt(iotDeviceKey, nonce, 1, plaintext, sizeof(plaintext));
+
+    // 4. Assemble 32-byte uncoded frame
+    uncoded_buffer[2] = 0x03; // Protocol marker for Encrypted IoT Telemetry
+
+    uncoded_buffer[3] = (uint8_t)((iotDeviceId >> 24) & 0xFF);
+    uncoded_buffer[4] = (uint8_t)((iotDeviceId >> 16) & 0xFF);
+    uncoded_buffer[5] = (uint8_t)((iotDeviceId >> 8) & 0xFF);
+    uncoded_buffer[6] = (uint8_t)(iotDeviceId & 0xFF);
+
+    uncoded_buffer[7] = (uint8_t)((horusV3PacketCount >> 8) & 0xFF);
+    uncoded_buffer[8] = (uint8_t)(horusV3PacketCount & 0xFF);
+
+    memcpy(uncoded_buffer + 9, plaintext, sizeof(plaintext));
+
+    // 5. Calculate CRC16-CCITT over bytes 2..31 (30 bytes)
+    int frameSize = 32;
+    uint16_t packetCrc = (uint16_t)crc16((unsigned char *)(uncoded_buffer + 2), frameSize - 2);
+    memcpy(uncoded_buffer, &packetCrc, sizeof(packetCrc)); // little-endian
+
+    if (xdataPortMode == 1) {
+      xdataSerial.print("[info]: IOT SECURE 4FSK: Frame 32B | DevID 0x");
+      xdataSerial.print(iotDeviceId, HEX);
+      xdataSerial.print(" | Seq ");
+      xdataSerial.println(horusV3PacketCount);
+    }
+
+    return frameSize;
+  }
 
   // Should check how this is allocated in memory.
 
@@ -5922,6 +6017,9 @@ bool runXdataCommand(const char* line) {
     xdataSerial.println(F(" SET:IV_STOP=<sec> : Chu ky khi xe dung yen (vi du: SET:IV_STOP=900)"));
     xdataSerial.println(F(" SET:BOOM_IV=<sec> : Chu ky doc cam bien nhiet am (vi du: SET:BOOM_IV=900)"));
     xdataSerial.println(F(" SET:BOOM=<0/1>    : Bat/tat mach do cam bien nhiet am"));
+    xdataSerial.println(F(" SET:ENC=<0/1>     : Bat/tat ma hoa ChaCha20 toan bo goi tin"));
+    xdataSerial.println(F(" SET:ID=<id>       : Dat 32-bit Device ID (vi du: SET:ID=0x00000001)"));
+    xdataSerial.println(F(" SET:KEY=<64 hex>  : Dat 256-bit ChaCha20 Pre-Shared Key"));
     xdataSerial.println(F("========================================================\n"));
     return true;
   }
@@ -6021,6 +6119,14 @@ bool runXdataCommand(const char* line) {
     xdataSerial.print(F(" | Spd: ")); xdataSerial.print(gpsSpeedKph, 1); xdataSerial.println(F(" km/h"));
     xdataSerial.print(F("Position: ")); xdataSerial.print(gpsLat, 6); xdataSerial.print(F(", ")); xdataSerial.println(gpsLong, 6);
     xdataSerial.print(F("Battery : ")); xdataSerial.print(readBatteryVoltage(), 2); xdataSerial.println(F(" V"));
+    xdataSerial.print(F("IoT Security: "));
+    if (iotEncryptionEnable) {
+      xdataSerial.print(F("ChaCha20 Full-Packet Encrypted (ID: 0x"));
+      xdataSerial.print(iotDeviceId, HEX);
+      xdataSerial.println(F(")"));
+    } else {
+      xdataSerial.println(F("Disabled (Horus V3 ASN1)"));
+    }
     xdataSerial.println(F("------------------------------------------------------\n"));
     return true;
   }
@@ -6078,6 +6184,43 @@ bool runXdataCommand(const char* line) {
       xdataSerial.println(F(" s"));
     } else {
       xdataSerial.println(F("[cli]: ERR - Interval must be 5 - 3600 s"));
+    }
+    return true;
+  }
+
+  if (strncmp(line, "SET:ENC=", 8) == 0) {
+    int e = atoi(line + 8);
+    iotEncryptionEnable = (e > 0);
+    xdataSerial.print(F("[cli]: OK - IoT Encryption "));
+    xdataSerial.println(iotEncryptionEnable ? F("ENABLED (ChaCha20)") : F("DISABLED (Horus V3 ASN1)"));
+    return true;
+  }
+
+  if (strncmp(line, "SET:ID=", 7) == 0) {
+    const char* val = line + 7;
+    uint32_t newId = 0;
+    if (val[0] == '0' && (val[1] == 'x' || val[1] == 'X')) {
+      newId = (uint32_t)strtoul(val + 2, NULL, 16);
+    } else {
+      newId = (uint32_t)strtoul(val, NULL, 10);
+    }
+    iotDeviceId = newId;
+    xdataSerial.print(F("[cli]: OK - IoT Device ID set to 0x"));
+    xdataSerial.println(iotDeviceId, HEX);
+    return true;
+  }
+
+  if (strncmp(line, "SET:KEY=", 8) == 0) {
+    const char* hex = line + 8;
+    while (*hex == ' ') hex++;
+    if (strlen(hex) >= 64) {
+      for (int i = 0; i < 32; i++) {
+        char byteStr[3] = { hex[i*2], hex[i*2 + 1], 0 };
+        iotDeviceKey[i] = (uint8_t)strtoul(byteStr, NULL, 16);
+      }
+      xdataSerial.println(F("[cli]: OK - ChaCha20 256-bit Key updated"));
+    } else {
+      xdataSerial.println(F("[cli]: ERR - Key must be 64 hex characters (32 bytes)"));
     }
     return true;
   }
