@@ -35,7 +35,7 @@ except ImportError:
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-HTTP_INGEST_URL = "http://localhost:3000/api/telemetry/ingest"
+HTTP_INGEST_URL = "http://localhost:3000/api/v1/telemetry/ingest"
 KEYSTORE_FILE = "/home/pi/iot_device_keys.json"
 
 # Ánh xạ alias thiết bị phần cứng tới ID trạm tĩnh / trạm di động tương ứng
@@ -54,12 +54,6 @@ ROOT_MASTER_KEY = bytes([
 ])
 
 DEVICE_KEYSTORE = {}
-
-# Ánh xạ Device ID sang mã trạm gợi nhớ / định danh quen thuộc
-DEVICE_ALIAS_MAP = {
-    1: ["IOT-00000001"],
-    2: ["IOT-00000002"]
-}
 
 def derive_device_key(master_key: bytes, device_id: int) -> bytes:
     """Phái sinh khóa riêng 256-bit cho từng thiết bị từ Master Key qua ChaCha20-KDF"""
@@ -224,9 +218,10 @@ def forward_to_hoan_uk(payload: dict):
             headers={'Content-Type': 'application/json'}
         )
         with urllib.request.urlopen(req, timeout=3.0) as resp:
-            pass
+            if resp.status == 200:
+                logging.info(f"[FORWARD] Ingested to hoan.uk: {payload.get('deviceId')}")
     except Exception as e:
-        logging.warning(f"[FORWARD-FAIL] Could not send to hoan.uk: {e}")
+        logging.warning(f"[FORWARD-FAIL] Could not send to hoan.uk ({payload.get('deviceId')}): {e}")
 
 def process_decoded_packet(pkt: dict, snr=None, rssi=None):
     if not pkt:
