@@ -12,5 +12,5 @@ echo "Khoi dong bo thu RTL-SDR Horus V3 tai tan so: $FREQ (Device $DEVICE_INDEX)
 echo "=========================================================="
 
 exec rtl_fm -d "$DEVICE_INDEX" -M usb -f "$FREQ" -s 48k -g 40 -p 0 2>/dev/null \
-  | /home/pi/horus-venv/bin/horus_demod -m binary --sample-rate 48000 --rate 100 - 2>/dev/null \
+  | /home/pi/horus-venv/bin/horus_demod -m binary --sample-rate 48000 --rate 100 -t 5 - \
   | /home/pi/horus-venv/bin/python3 -u /home/pi/car_tracker_decoder.py
