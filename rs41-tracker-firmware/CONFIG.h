@@ -76,7 +76,7 @@ constexpr uint16_t pipTimeSyncOffsetSeconds  = 0;
 // Horus Binary V3:
 uint16_t horusV3TimeSyncSeconds        = 180; // Che do tiet kiem pin: Xe chay phat 3 phut (180s)/lan
 uint16_t horusV3StationarySeconds      = 900; // Xe do phat 15 phut (900s)/lan -> Pin 2 vien AA dung duoc 15 - 30+ ngay!
-constexpr uint16_t horusV3TimeSyncOffsetSeconds  = 0;
+uint16_t horusV3TimeSyncOffsetSeconds  = 0;   // TDMA slot offset: tu dong tinh theo iotDeviceId (5s/device)
 
 // Horus Binary V2:
 constexpr uint16_t horusTimeSyncSeconds        = 15;
@@ -169,7 +169,7 @@ constexpr int8_t   horusPreambleLength = 12;  // Preamble length (bytes) - 12 by
    ============================================================ */
 
 bool     iotEncryptionEnable = true;            // Bat ma hoa toan bo goi tin (0 bit thua, an danh 100%)
-uint32_t iotDeviceId         = 0x00000002;      // 32-bit unique device address (supports 4.2+ billion IoT devices)
+uint32_t iotDeviceId         = 0x00000001;      // 32-bit unique device address (supports 4.2+ billion IoT devices)
 uint8_t  iotMasterKey[32]    = {
   0x7a, 0x7a, 0xd8, 0x4d, 0xe5, 0x74, 0xbb, 0xa3,
   0xac, 0xaa, 0x13, 0xd0, 0x57, 0xcd, 0xd0, 0x00,

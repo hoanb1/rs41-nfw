@@ -239,6 +239,9 @@ uint8_t ozoneDbgLen     = 0;          // length of last received raw frame
 uint32_t ozoneRxByteTotal = 0;        // total bytes received on xdata RX port
 uint16_t ozoneFrameTotal = 0;         // count of successfully parsed OIF411 frames
 bool forceTxRequested = false;        // Triggered by button double-click or CLI CMD:TX
+static unsigned long sch_nextSlot(unsigned long nowMs, uint16_t periodSec, uint16_t offsetSec);
+void horusV3Tx();
+void triggerImmediateTx(bool waitForGpsFresh);
 float lastGpsAlt;
 unsigned long lastGpsAltMillisTime = 1;
 float vVCalc;
@@ -1579,16 +1582,55 @@ void hardwarePowerShutdown() {
   radioDisableTx();
 
   if (xdataPortMode == 1) {
-    xdataSerial.println("[info]: SHUTDOWN - powering off");
+    xdataSerial.println(F("[info]: SHUTDOWN - powering off"));
   }
 
+  // Visual indication: 3 crisp red blinks to acknowledge shutdown request
   for (int i = 0; i < 3; i++) {
     redLed();
-    delay(200);
+    delay(120);
     bothLedOff();
-    delay(200);
+    delay(120);
   }
+
+  // Wait until user releases the physical power button (up to 3 seconds).
+  // In RS41 hardware, S501 mechanically connects VBAT to Q502 gate.
+  // Power cannot drop while the user's finger is holding the button.
+  // Waiting for release prevents contact bounce from re-triggering the power latch!
+  unsigned long waitReleaseStart = millis();
+  while ((analogRead(VBTN_PIN) + 50 > analogRead(VBAT_PIN) && analogRead(VBAT_PIN) > 80)
+         && (millis() - waitReleaseStart < 3000UL)) {
+    delay(15);
+  }
+
+  // Debounce: wait 100ms so mechanical switch contacts are completely open and settled
+  delay(100);
+
+  // Ensure all LEDs are off
+  bothLedOff();
+
+  // Assert PSU_SHUTDOWN_PIN HIGH to open Q503 and pull Q502 gate to GND
+  pinMode(PSU_SHUTDOWN_PIN, OUTPUT);
   digitalWrite(PSU_SHUTDOWN_PIN, HIGH);
+
+  #ifdef RSM4x4
+  // Keep PA9 held HIGH even if MCU enters low-power standby
+  HAL_PWREx_EnableGPIOPullUp(PWR_GPIO_A, PWR_GPIO_BIT_9);
+  HAL_PWREx_EnablePullUpPullDownConfig();
+  #endif
+
+  // Disable interrupts completely
+  __disable_irq();
+
+  #ifdef RSM4x4
+  HAL_PWREx_EnterSHUTDOWNMode();
+  #endif
+
+  // Permanent halt - never return to loop(), never allow brownout reset to restart
+  while (1) {
+    digitalWrite(PSU_SHUTDOWN_PIN, HIGH);
+    __WFI();
+  }
 }
 
 void buttonHandlerSimplified() {  
@@ -1624,18 +1666,18 @@ void buttonHandler() {
       // Button is being held down
       unsigned long holdDuration = now - btnPressStartTime;
 
-      if (holdDuration >= 2500) {
-        // HELD FOR >= 2.5 SECONDS -> SHUTDOWN!
+      if (holdDuration >= 2000) {
+        // HELD FOR >= 2.0 SECONDS -> SHUTDOWN!
         if (!shutdownTriggered) {
           shutdownTriggered = true;
           if (xdataPortMode == 1) {
-            xdataSerial.println(F("[btn]: Hold > 2.5s detected -> SHUTDOWN"));
+            xdataSerial.println(F("[btn]: Hold >= 2.0s detected -> SHUTDOWN"));
           }
           hardwarePowerShutdown();
         }
-      } else if (holdDuration >= 1000) {
+      } else if (holdDuration >= 800) {
         // Warning feedback while holding: rapid red blinks to alert user shutdown is approaching
-        if ((holdDuration / 150) % 2 == 0) {
+        if ((holdDuration / 100) % 2 == 0) {
           redLed();
         } else {
           bothLedOff();
@@ -1698,56 +1740,11 @@ void buttonHandler() {
         for (int i = 0; i < 3; i++) { greenLed(); delay(150); bothLedOff(); delay(100); }
       }
     } else if (clickCount == 2) {
-      // DOUBLE CLICK DETECTED -> FORCE TELEMETRY TRANSMISSION IMMEDIATELY!
-      if (xdataPortMode == 1) {
-        xdataSerial.println(F("[btn]: Double-click -> FORCE TX NOW!"));
-      }
-      // Visual feedback: 3 rapid orange/green blinks
-      for (int i = 0; i < 3; i++) {
-        greenLed();
-        delay(70);
-        bothLedOff();
-        delay(70);
-      }
-      forceTxRequested = true;
+      // 2 CLICKS -> WAKEUP, LẤY GPS RỒI MỚI PHÁT!
+      triggerImmediateTx(true);
     } else if (clickCount == 1) {
-      // SINGLE CLICK DETECTED -> SHOW STATUS ON LED FOR 2 SECONDS
-      if (xdataPortMode == 1) {
-        xdataSerial.print(F("[btn]: Single-click -> Status check (Mode: "));
-        xdataSerial.print(operationalMode == 0 ? F("HYBRID") : (operationalMode == 1 ? F("TRACK") : F("WX")));
-        xdataSerial.print(F(", Profile: "));
-        xdataSerial.print(powerProfile);
-        xdataSerial.print(F(", Sats: "));
-        xdataSerial.print(gpsSats);
-        xdataSerial.print(F(", Bat: "));
-        xdataSerial.print(readBatteryVoltage());
-        xdataSerial.println(F("V)"));
-      }
-      if (vBatWarn || err) {
-        // Red blink if error or low battery
-        for (int i = 0; i < 2; i++) {
-          redLed();
-          delay(200);
-          bothLedOff();
-          delay(150);
-        }
-      } else if (gpsSats < 4) {
-        // Orange blink if searching for GPS fix
-        for (int i = 0; i < 2; i++) {
-          orangeLed();
-          delay(200);
-          bothLedOff();
-          delay(150);
-        }
-      } else {
-        // Green blink if all OK and GPS locked!
-        for (int i = 0; i < 2; i++) {
-          greenLed();
-          delay(200);
-          bothLedOff();
-          delay(150);
-        }
-      }
+      // 1 CLICK -> WAKEUP VÀ PHÁT GÓI TIN NGAY CÓ GPS HOẶC CHƯA CÓ GPS!
+      triggerImmediateTx(false);
     }
     clickCount = 0;
   }
@@ -1801,16 +1798,10 @@ void deviceStatusHandler() {
     }
 
     if (ledsEnable) {
-      bool noGpsFix = (gpsOperationMode != 0 && gpsSats < 5);
-
-      if (err) {
-        redLed();
-      } else if (noGpsFix) {
-        orangeLed();
-      } else {
-        // Da on dinh (da co GPS fix, khong co loi) -> Tat den LED hoan toan de tiet kiem pin
-        bothLedOff();
-      }
+      // Tiet kiem pin toi da (tranh tieu thu 15-20mA): Tat den LED hoan toan khi hoat dong
+      // Khi mat GPS hoac dang tim ve tinh, he thong van tu dong xu ly ngam ma KHONG bat den sang lien tuc
+      // Nguoi dung co the nhan nut 1 lan (single click) bat cu luc nao de kiem tra trang thai qua den LED.
+      bothLedOff();
     }
   } else {
     bothLedOff();
@@ -4389,6 +4380,76 @@ void horusV3Tx() {
   }
 }
 
+void triggerImmediateTx(bool waitForGpsFresh) {
+  if (!horusV3Enable) return;
+
+  if (waitForGpsFresh) {
+    if (xdataPortMode == 1) {
+      xdataSerial.println(F("[btn]: 2 clicks -> Waking up, acquiring fresh GPS before TX..."));
+    }
+    // Visual indicator: 2 rapid blinks to acknowledge double-click
+    for (int i = 0; i < 2; i++) {
+      greenLed(); delay(80); bothLedOff(); delay(80);
+    }
+
+    // Try to acquire fresh GPS fix for up to 10 seconds
+    unsigned long gpsWaitStart = millis();
+    while ((gpsSats < 4 || (gpsLat > -0.0001f && gpsLat < 0.0001f && gpsLong > -0.0001f && gpsLong < 0.0001f)) 
+           && (millis() - gpsWaitStart < 10000UL)) {
+      gpsHandler();
+      // Brief orange pulse every 200ms while searching
+      if (((millis() - gpsWaitStart) / 100) % 2 == 0) {
+        orangeLed();
+      } else {
+        bothLedOff();
+      }
+      delay(20);
+    }
+    bothLedOff();
+
+    if (gpsSats >= 4) {
+      if (xdataPortMode == 1) xdataSerial.println(F("[btn]: Fresh GPS fix locked! Transmitting now..."));
+      greenLed(); delay(150); bothLedOff();
+    } else {
+      if (xdataPortMode == 1) xdataSerial.println(F("[btn]: GPS search timeout (no fix). Transmitting last known status..."));
+      redLed(); delay(100); bothLedOff();
+    }
+  } else {
+    if (xdataPortMode == 1) {
+      xdataSerial.println(F("[btn]: 1 click -> Waking up & Instant TX (no GPS wait)..."));
+    }
+    // Visual indicator: 1 quick green/orange blink to acknowledge
+    if (gpsSats >= 4) {
+      greenLed(); delay(120); bothLedOff();
+    } else {
+      orangeLed(); delay(120); bothLedOff();
+    }
+  }
+
+  // Refresh sensor values before transmitting
+  if (sensorBoomEnable && (!sensorBoomPowerSaving || (millis() - sch_lastSensorBoom) >= sensorBoomPowerSavingInterval)) {
+    sensorBoomHandler(); sch_lastSensorBoom = millis();
+  }
+  pressureHandler(); sch_lastPressure = millis();
+
+  // Transmit packet immediately!
+  horusV3Tx();
+
+  // Reset periodic schedule so next scheduled packet is a full period away
+  sch_lastTxHw[1] = millis();
+  uint16_t curHorusV3Iv = horusV3TimeSyncSeconds;
+  if (operationalMode == 2) {
+    curHorusV3Iv = horusV3StationarySeconds;
+  } else if (operationalMode == 0 && gpsSats >= 4 && gpsSpeedKph < 2.5f) {
+    curHorusV3Iv = horusV3StationarySeconds;
+  }
+  sch_nextHorusV3Ms = sch_nextSlot(sch_sysMs, curHorusV3Iv, horusV3TimeSyncOffsetSeconds);
+
+  if (xdataPortMode == 1) {
+    xdataSerial.println(F("[btn]: Instant TX completed."));
+  }
+}
+
 void aprsTx() {
   if (aprsEnable) {
     // Calculate size locally from the global array
@@ -5385,11 +5446,8 @@ void gpsQuietMode() {
             lastUpdate = now;
         }
 
-        if (sensorBoomFault || calibrationError || rpm411Error || vBatWarn) {
-          redLed();
-        } else {
-          orangeLed();
-        }
+        // Tiet kiem pin toi da: Khong bat den LED trong che do GPS Quiet
+        bothLedOff();
 
         // Run handlers to keep system responsive
         gpsHandler();
@@ -5421,6 +5479,17 @@ static unsigned long sch_nextSlot(unsigned long nowMs, uint16_t periodSec, uint1
   unsigned long base = (nowMs >= oMs) ? (nowMs - oMs) : 0UL;
   unsigned long next = (base / pMs) * pMs + oMs;
   if (next <= nowMs) next += pMs;
+
+  // Smart Anti-Collision Jitter:
+  // Random jitter (+/- 3 seconds) for each transmission window,
+  // prevents multiple devices from ever becoming phase-locked in packet collisions!
+  if (periodSec >= 15) {
+    long jitterMs = ((long)(random(0, 7)) - 3L) * 1000L;
+    if ((long)next + jitterMs > (long)nowMs + 2000L) {
+      next = (unsigned long)((long)next + jitterMs);
+    }
+  }
+
   return next;
 }
 
@@ -5564,6 +5633,18 @@ void schedulerInit() {
   if (morseEnable   && morseTimeSyncSeconds   < FAST_TX_MIN_SYNC_SECONDS && morseTimeSyncSeconds   < fastIv) fastIv = morseTimeSyncSeconds;
   fastTxMode    = (fastIv != 0xFFFF);
   fastTxDelayMs = fastTxMode ? ((unsigned long)fastIv * 1000UL) : 0;
+
+  // Smart dynamic slot offset using factory STM32 silicon UID + IoT device ID:
+  // Allows flashing many devices with the same firmware without fixed slot collision!
+  #ifdef RSM4x4
+  uint32_t chipUid = HAL_GetUIDw0() ^ HAL_GetUIDw1() ^ HAL_GetUIDw2();
+  #else
+  uint32_t chipUid = (uint32_t)analogRead(VBAT_PIN) * 31337 + 1;
+  #endif
+  uint32_t seed = chipUid ^ (iotDeviceId * 2654435761UL);
+  if (horusV3StationarySeconds > 15) {
+    horusV3TimeSyncOffsetSeconds = (uint16_t)((seed ^ (seed >> 16)) % (horusV3StationarySeconds - 10));
+  }
 
   if (xdataPortMode == 1 && fastTxMode) {
     xdataSerial.print(F("[sch]: simple fast-TX mode - delay "));
@@ -6916,6 +6997,7 @@ void setup() {
   pinMode(RED_LED_PIN, OUTPUT);
   pinMode(GREEN_LED_PIN, OUTPUT);
   pinMode(PSU_SHUTDOWN_PIN, OUTPUT);
+  digitalWrite(PSU_SHUTDOWN_PIN, LOW);
   pinMode(CS_RADIO_SPI, OUTPUT);
   pinMode(CS_SPI, OUTPUT);
   if (heaterPinControlAvail) {
