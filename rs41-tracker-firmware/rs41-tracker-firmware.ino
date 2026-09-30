@@ -317,6 +317,8 @@ bool calibrationError = false;
 int extHeaterPwmStatus = 0;
 int referenceHeaterStatus = 0;
 
+// Operational Mode: 0 = HYBRID (Dynamic Tracker + Weather Station), 1 = TRACKER ONLY, 2 = WEATHER STATION ONLY (Stationary)
+uint8_t operationalMode = 0;
 
 // APRS - misc.
 bool aprsTone = 0;
@@ -1612,7 +1614,9 @@ void buttonHandler() {
     } else if (clickCount == 1) {
       // SINGLE CLICK DETECTED -> SHOW STATUS ON LED FOR 2 SECONDS
       if (xdataPortMode == 1) {
-        xdataSerial.print(F("[btn]: Single-click -> Status check (Profile: "));
+        xdataSerial.print(F("[btn]: Single-click -> Status check (Mode: "));
+        xdataSerial.print(operationalMode == 0 ? F("HYBRID") : (operationalMode == 1 ? F("TRACK") : F("WX")));
+        xdataSerial.print(F(", Profile: "));
         xdataSerial.print(powerProfile);
         xdataSerial.print(F(", Sats: "));
         xdataSerial.print(gpsSats);
@@ -5484,8 +5488,12 @@ void schedulerLoop() {
 
   unsigned long nowMs = sch_sysMs;
   uint16_t curHorusV3Iv = horusV3TimeSyncSeconds;
-  if (gpsSats >= 4 && gpsSpeedKph < 2.5f) {
-    curHorusV3Iv = horusV3StationarySeconds;
+  if (operationalMode == 2) {
+    curHorusV3Iv = horusV3StationarySeconds; // Weather Station Only
+  } else if (operationalMode == 0) {
+    if (gpsSats >= 4 && gpsSpeedKph < 2.5f) {
+      curHorusV3Iv = horusV3StationarySeconds; // Hybrid: stationary when parked
+    }
   }
   if (pipEnable     && sch_nextPipMs     == 0) sch_nextPipMs     = sch_nextSlot(nowMs, pipTimeSyncSeconds,     pipTimeSyncOffsetSeconds);
   if (horusV3Enable && sch_nextHorusV3Ms == 0) sch_nextHorusV3Ms = sch_nextSlot(nowMs, curHorusV3Iv,           horusV3TimeSyncOffsetSeconds);
@@ -5721,8 +5729,12 @@ void schedulerLoop() {
       };
 
       uint16_t curHorusV3Iv = horusV3TimeSyncSeconds;
-      if (gpsSats >= 4 && gpsSpeedKph < 2.5f) {
-        curHorusV3Iv = horusV3StationarySeconds;
+      if (operationalMode == 2) {
+        curHorusV3Iv = horusV3StationarySeconds; // Weather Station Only
+      } else if (operationalMode == 0) {
+        if (gpsSats >= 4 && gpsSpeedKph < 2.5f) {
+          curHorusV3Iv = horusV3StationarySeconds; // Hybrid: stationary when parked
+        }
       }
 
       checkMode(pipEnable,     sch_nextPipMs,     pipTimeSyncSeconds,     pipTimeSyncOffsetSeconds,     0);
@@ -5811,10 +5823,11 @@ bool runXdataCommand(const char* line) {
 
   if (strcasecmp(line, "HELP") == 0 || strcmp(line, "?") == 0) {
     xdataSerial.println(F("\n==================== RS41 CLI HELP ===================="));
-    xdataSerial.println(F(" STATUS            : In trang thai chi tiet (GPS, Pin, RF, Chu ky, Nhiet Am)"));
+    xdataSerial.println(F(" STATUS            : In trang thai chi tiet (GPS, Pin, RF, Che do, Nhiet, Am, Ap suat)"));
     xdataSerial.println(F(" CMD:TX            : Ep phat 1 goi tin vi tri ngay lap tuc"));
     xdataSerial.println(F(" CMD:REBOOT        : Khoi dong lai STM32"));
     xdataSerial.println(F(" CMD:SHUTDOWN      : Tat nguon hoan toan qua MOSFET"));
+    xdataSerial.println(F(" SET:MODE=<mode>   : Che do hoat dong (HYBRID / TRACKER / WEATHER)"));
     xdataSerial.println(F(" SET:PROFILE=<1-3> : Chon profile pin (1:Active ~10d, 2:Eco ~20d, 3:Ultra ~45d)"));
     xdataSerial.println(F(" SET:FREQ=<MHz>    : Cai tan so phat (vi du: SET:FREQ=437.600)"));
     xdataSerial.println(F(" SET:POWER=<0-7>   : Cong suat RF (0=1dBm, 7=20dBm/100mW)"));
@@ -5823,6 +5836,23 @@ bool runXdataCommand(const char* line) {
     xdataSerial.println(F(" SET:BOOM_IV=<sec> : Chu ky doc cam bien nhiet am (vi du: SET:BOOM_IV=900)"));
     xdataSerial.println(F(" SET:BOOM=<0/1>    : Bat/tat mach do cam bien nhiet am"));
     xdataSerial.println(F("========================================================\n"));
+    return true;
+  }
+
+  if (strncmp(line, "SET:MODE=", 9) == 0) {
+    const char* m = line + 9;
+    if (strcasecmp(m, "HYBRID") == 0 || strcmp(m, "0") == 0) {
+      operationalMode = 0;
+      xdataSerial.println(F("[cli]: OK - Mode set to HYBRID (Auto Tracker + Weather Station)"));
+    } else if (strcasecmp(m, "TRACKER") == 0 || strcmp(m, "1") == 0) {
+      operationalMode = 1;
+      xdataSerial.println(F("[cli]: OK - Mode set to TRACKER ONLY (Continuous vehicle tracking)"));
+    } else if (strcasecmp(m, "WEATHER") == 0 || strcmp(m, "2") == 0) {
+      operationalMode = 2;
+      xdataSerial.println(F("[cli]: OK - Mode set to WEATHER STATION ONLY (Stationary periodic wx station)"));
+    } else {
+      xdataSerial.println(F("[cli]: ERR - Mode must be HYBRID, TRACKER, or WEATHER"));
+    }
     return true;
   }
 
@@ -5882,12 +5912,23 @@ bool runXdataCommand(const char* line) {
     xdataSerial.print(F("Callsgn: ")); xdataSerial.print(HORUS_V3_CALLSIGN);
     xdataSerial.print(F(" | Freq: ")); xdataSerial.print(horusV3FreqTable[0], 4); xdataSerial.println(F(" MHz"));
     xdataSerial.print(F("RF Power: ")); xdataSerial.print(horusV3RadioPower); xdataSerial.println(F(" (7=100mW)"));
+    xdataSerial.print(F("Mode: "));
+    if (operationalMode == 0) xdataSerial.print(F("HYBRID (Auto Tracker + Wx)"));
+    else if (operationalMode == 1) xdataSerial.print(F("TRACKER ONLY"));
+    else xdataSerial.print(F("WEATHER STATION ONLY"));
+    xdataSerial.print(F(" | State: "));
+    if (operationalMode == 2 || (gpsSats >= 4 && gpsSpeedKph < 2.5f)) {
+      xdataSerial.println(F("STATIONARY (Wx Station)"));
+    } else {
+      xdataSerial.println(F("MOBILE (Tracking)"));
+    }
     xdataSerial.print(F("Interval Move: ")); xdataSerial.print(horusV3TimeSyncSeconds);
     xdataSerial.print(F("s | Stop: ")); xdataSerial.print(horusV3StationarySeconds); xdataSerial.println(F("s"));
     xdataSerial.print(F("Sensor Boom: ")); xdataSerial.print(sensorBoomEnable ? F("ON") : F("OFF"));
     xdataSerial.print(F(" | Boom Interval: ")); xdataSerial.print(sensorBoomPowerSavingInterval / 1000UL); xdataSerial.println(F("s"));
     xdataSerial.print(F("Temp: ")); xdataSerial.print(mainTemperatureValue, 1);
-    xdataSerial.print(F(" C | Humidity: ")); xdataSerial.print(humidityValue, 1); xdataSerial.println(F(" %"));
+    xdataSerial.print(F(" C | Humidity: ")); xdataSerial.print(humidityValue, 1);
+    xdataSerial.print(F(" % | Pressure: ")); xdataSerial.print(pressureValue, 1); xdataSerial.println(F(" hPa"));
     xdataSerial.print(F("GPS Sats: ")); xdataSerial.print(gpsSats);
     xdataSerial.print(F(" | Fix: ")); xdataSerial.print(gpsSats >= 4 ? F("YES") : F("SEARCHING"));
     xdataSerial.print(F(" | Spd: ")); xdataSerial.print(gpsSpeedKph, 1); xdataSerial.println(F(" km/h"));

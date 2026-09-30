@@ -13,9 +13,24 @@ from datetime import datetime
 import urllib.request
 from horusdemodlib.decoder import decode_packet
 
+import math
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 HTTP_INGEST_URL = "http://localhost:3000/api/v1/telemetry/ingest"
+
+def calculate_dew_point(temp, humidity):
+    """Tính điểm sương (°C) theo công thức Magnus-Tetens chuẩn khí tượng"""
+    if temp is None or humidity is None or humidity <= 0:
+        return None
+    try:
+        a = 17.27
+        b = 237.7
+        alpha = ((a * temp) / (b + temp)) + math.log(humidity / 100.0)
+        dew_point = (b * alpha) / (a - alpha)
+        return round(dew_point, 1)
+    except Exception:
+        return None
 
 def forward_to_hoan_uk(payload):
     try:
@@ -53,24 +68,31 @@ def process_line(line):
             batt = pkt.get("battery_voltage") if pkt.get("battery_voltage") is not None else pkt.get("batt_voltage")
             pressure = pkt.get("ext_pressure") if pkt.get("ext_pressure") is not None else pkt.get("pressure")
 
+            # Tính điểm sương
+            dew_point = calculate_dew_point(temp, humidity)
+
             # Filter out (0,0) unfixed GPS coordinates (searching for satellites)
             has_valid_fix = (lat is not None and lon is not None and (abs(lat) > 0.001 or abs(lon) > 0.001))
+            is_moving = (speed is not None and speed >= 2.5)
+            role_desc = f"TRẠM THỜI TIẾT DI ĐỘNG ({speed:.1f} km/h)" if is_moving else "TRẠM THỜI TIẾT TẠI CHỖ (ĐỨNG YÊN)"
 
-            print("=" * 60)
-            print(f"[{now_str}] NHAN GOI TELEMETRY TU XE: {callsign}")
+            print("=" * 65)
+            print(f"[{now_str}] {role_desc} | XE: {callsign}")
             if has_valid_fix:
-                print(f"  Toa do: {lat:.6f}, {lon:.6f} | Do cao: {alt} m | Toc do: {speed} km/h")
+                print(f"  Vị trí: {lat:.6f}, {lon:.6f} | Độ cao: {alt} m | Vận tốc: {speed} km/h")
             else:
-                print(f"  Toa do: Dang cho khoa GPS fix ve tinh (indoor)... | Dien ap: {batt} V")
+                print(f"  Vị trí: Đang dò vệ tinh / Lưu vị trí gần nhất | Điện áp: {batt} V")
             if temp is not None:
-                print(f"  Nhiet do: {temp:.1f} °C")
+                print(f"  Nhiệt độ ngoài : {temp:.1f} °C")
             if humidity is not None:
-                print(f"  Do am: {humidity:.1f} %")
+                print(f"  Độ ẩm không khí: {humidity:.1f} %")
+            if dew_point is not None:
+                print(f"  Điểm sương     : {dew_point:.1f} °C")
             if pressure is not None:
-                print(f"  Khi ap: {pressure:.1f} hPa")
+                print(f"  Áp suất khí quyển: {pressure:.1f} hPa")
             if batt is not None:
-                print(f"  Dien ap nguon/pin: {batt:.2f} V")
-            print("=" * 60, flush=True)
+                print(f"  Điện áp pin    : {batt:.2f} V")
+            print("=" * 65, flush=True)
 
             loc_dict = {
                 "speed": speed,
@@ -87,17 +109,19 @@ def process_line(line):
                 pkt.pop("longitude", None)
                 pkt.pop("altitude", None)
 
-            # Build Universal Payload for hoan.uk
+            # Build Universal Payload for hoan.uk (Mobile / Stationary Weather Station + Tracker)
             universal_payload = {
                 "deviceId": callsign,
-                "deviceType": "vehicle_tracker",
+                "deviceType": "mobile_weather_station",
+                "stationRole": "mobile" if is_moving else "stationary",
                 "protocol": "horus_v3",
                 "timestamp": datetime.now().isoformat(),
                 "location": loc_dict,
                 "environment": {
                     "temperature": temp,
                     "humidity": humidity,
-                    "pressure": pressure
+                    "pressure": pressure,
+                    "dewPoint": dew_point
                 },
                 "system": {
                     "voltage": batt,

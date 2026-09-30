@@ -1,7 +1,8 @@
 # TÀI LIỆU THIẾT KẾ PHẦN MỀM (SOFTWARE DESIGN DESCRIPTION - SDD)
-## DỰ ÁN: HỆ THỐNG ĐỊNH VỊ & GIÁM SÁT HÀNH TRÌNH XE Ô TÔ RS41 (RS41 CAR TRACKER)
+## DỰ ÁN: HỆ THỐNG ĐỊNH VỊ HÀNH TRÌNH & TRẠM THỜI TIẾT DI ĐỘNG / ĐỨNG YÊN RS41
+### (RS41 DUAL-ROLE VEHICLE TRACKER & MOBILE / STATIONARY WEATHER STATION)
 **Tiêu chuẩn tài liệu:** Tuân thủ IEEE Std 1016-2009 (Software Design Descriptions)  
-**Phiên bản:** 2.0.0  
+**Phiên bản:** 2.1.0  
 **Ngày phát hành:** 30/09/2026  
 **Đơn vị phát triển:** Antigravity / hoan.uk  
 **Trạng thái:** Production Ready  
@@ -11,12 +12,14 @@
 ## 1. TỔNG QUAN HỆ THỐNG (SYSTEM OVERVIEW)
 
 ### 1.1. Mục đích (Purpose)
-Tài liệu này mô tả chi tiết kiến trúc phần mềm, cấu trúc module, giao thức truyền tin, giải thuật tối ưu năng lượng và luồng xử lý dữ liệu của **Hệ thống Định vị & Giám sát Hành trình Ô tô RS41 (RS41 Car Tracker)**. Hệ thống tận dụng bo mạch bóng thám không khí tượng cao cấp Vaisala RS41 (RSM4x4 / RSM4x5) để chuyển đổi thành thiết bị IoT giám sát hành trình xe ô tô tầm xa, hoạt động độc lập bằng pin tiểu AA kéo dài từ **15 đến 45+ ngày**.
+Tài liệu này mô tả chi tiết kiến trúc phần mềm, cấu trúc module, giao thức truyền tin, giải thuật tối ưu năng lượng và luồng xử lý dữ liệu của **Hệ thống Định vị Hành trình & Trạm Thời Tiết Đa Năng RS41 (RS41 Dual-Role Tracker & Weather Station)**. Hệ thống tận dụng bo mạch bóng thám không khí tượng cao cấp Vaisala RS41 (RSM4x4 / RSM4x5) để chuyển đổi thành thiết bị IoT tích hợp 2 vai trò cốt lõi:
+1. **Thiết bị giám sát hành trình xe ô tô (Vehicle Tracker)**: Tự động phát hiện chuyển động qua vận tốc GPS, theo dõi lộ trình di chuyển liên tục, cảnh báo tốc độ và ghi nhận nhiệt độ mặt đường / cabin.
+2. **Trạm khí tượng di động hoặc đứng yên (Mobile / Stationary Weather Station)**: Khi xe di chuyển, thiết bị đóng vai trò trạm thời tiết di động đo đạc vi khí hậu dọc tuyến đường; khi xe đỗ hoặc lắp đặt cố định tại một điểm, thiết bị chuyển sang chế độ trạm thời tiết tại chỗ, lấy mẫu nhiệt độ chính xác qua que đo Pt1000, độ ẩm màng mỏng polymer, áp suất khí quyển và tính toán điểm sương (Dew Point), với thời lượng pin 2 viên AA kéo dài từ **15 đến 45+ ngày**.
 
 ### 1.2. Phạm vi (Scope)
 Hệ thống bao gồm 3 phân hệ chính:
-1. **Firmware nhúng (`rs41-tracker-firmware`)**: Chạy trên vi điều khiển STM32L412RBT6 (Ultra-low-power ARM Cortex-M4), điều khiển định vị GNSS u-blox M10, điều chế sóng vô tuyến 4FSK tầm xa (Horus Binary V3), quản lý năng lượng que đo nhiệt ẩm (Sensor Boom) và giao tiếp điều khiển qua nút bấm vật lý / Serial CLI.
-2. **Trạm thu tín hiệu mặt đất (`receiver`)**: Sử dụng USB SDR RTL2832U kết hợp bộ giải mã phần mềm `horus_demod` và `car_tracker_decoder.py` để bắt sóng RF tại tần số 437.600 MHz, giải mã kiểm tra CRC16, làm sạch dữ liệu tọa độ và chuyển tiếp lên hệ sinh thái qua HTTP Ingestion / MQTT.
+1. **Firmware nhúng (`rs41-tracker-firmware`)**: Chạy trên vi điều khiển STM32L412RBT6 (Ultra-low-power ARM Cortex-M4), điều khiển định vị GNSS u-blox M10, điều chế sóng vô tuyến 4FSK tầm xa (Horus Binary V3), quản lý năng lượng que đo nhiệt ẩm (Sensor Boom) với chế độ cách ly 0mA và giao tiếp điều khiển qua nút bấm vật lý / Serial CLI. Hỗ trợ 3 chế độ vận hành: `HYBRID` (Tự động chuyển đổi vai trò), `TRACKER ONLY`, và `WEATHER STATION ONLY`.
+2. **Trạm thu tín hiệu mặt đất (`receiver`)**: Sử dụng USB SDR RTL2832U kết hợp bộ giải mã phần mềm `horus_demod` và `car_tracker_decoder.py` để bắt sóng RF tại tần số 437.600 MHz, giải mã kiểm tra CRC16, tính điểm sương theo công thức Magnus-Tetens, làm sạch dữ liệu tọa độ (triệt tiêu 0,0) và chuyển tiếp lên hệ sinh thái qua HTTP Ingestion / MQTT.
 3. **Nền tảng Cloud & Web Portal (`hoan.uk/devices`)**: Hệ thống backend Node.js / Express, cơ sở dữ liệu chuỗi thời gian InfluxDB + NeDB, truyền dữ liệu thời gian thực Server-Sent Events (SSE) và giao diện bản đồ tương tác Leaflet hiển thị tọa độ, vết di chuyển (breadcrumbs) và số đo môi trường.
 
 ### 1.3. Định nghĩa & Từ viết tắt (Definitions & Acronyms)
@@ -108,7 +111,15 @@ stateDiagram-v2
     STATIONARY --> MOVING: Xe lăn bánh (Speed >= 2.5 km/h)
 ```
 
-### 3.2. Cấu trúc Profile năng lượng (Power Profiles)
+### 3.2. Chế độ Vận hành Kép (Dual Operational Modes)
+Firmware hỗ trợ 3 chế độ hoạt động linh hoạt, cho phép thiết bị biến hóa tức thì giữa thiết bị định vị xe và trạm thời tiết:
+- **Chế độ 0 - HYBRID (Mặc định)**: Tự động chuyển đổi vai trò.
+  - Khi xe lăn bánh (`Speed >= 2.5 km/h`): Hoạt động như **Trạm Thời Tiết Di Động (Mobile Weather Station & Tracker)**, phát vị trí với chu kỳ ngắn (`horusV3TimeSyncSeconds = 180s`) kèm số đo vi khí hậu dọc đường.
+  - Khi xe đỗ (`Speed < 2.5 km/h`): Tự động chuyển thành **Trạm Thời Tiết Tại Chỗ (Stationary Weather Station)**, giãn chu kỳ phát (`horusV3StationarySeconds = 900s` / 15 phút), đo nhiệt ẩm định kỳ và cô lập que đo về 0mA.
+- **Chế độ 1 - TRACKER ONLY**: Chuyên biệt theo dõi hành trình xe ô tô liên tục theo chu kỳ `IV_MOVE`.
+- **Chế độ 2 - WEATHER STATION ONLY**: Cố định làm trạm khí tượng (đo nhiệt độ Pt1000, độ ẩm tương đối RH, áp suất khí quyển P và tính điểm sương $T_d$), phát sóng định kỳ mỗi 15 - 30 phút theo chu kỳ `IV_STOP`.
+
+### 3.3. Cấu trúc Profile năng lượng (Power Profiles)
 Firmware tích hợp 3 Profile chuẩn có thể chuyển đổi tức thì bằng nút bấm hoặc Serial CLI:
 
 | Tham số | Profile 1: Active Tracking | Profile 2: Eco Balanced (Mặc định) | Profile 3: Ultra Deep-Save |
@@ -121,7 +132,7 @@ Firmware tích hợp 3 Profile chuẩn có thể chuyển đổi tức thì bằ
 | **Tuổi thọ pin 2x AA Alkaline** | ~7 - 10 ngày | **~18 - 25 ngày** | **~35 - 45 ngày** |
 | **Tuổi thọ pin 2x AA Lithium** | ~12 - 15 ngày | **~30 - 35 ngày** | **~50 - 65 ngày** |
 
-### 3.3. Giải thuật ngắt nguồn que đo cảm biến (Sensor Boom Power Isolation)
+### 3.4. Giải thuật ngắt nguồn que đo cảm biến (Sensor Boom Power Isolation)
 Que đo của RS41 gồm nhiệt điện trở Pt1000 và tụ đo ẩm polymer. Nếu duy trì mạch dao động liên tục, cụm này sẽ tiêu thụ dòng tĩnh ~1.5 - 3 mA làm cạn pin trong vài ngày.  
 **Giải pháp triển khai trong firmware:**
 1. Mạch đo chỉ được cấp nguồn trong thời gian lấy mẫu: $\Delta t \approx 80\text{ ms}$.
@@ -132,21 +143,22 @@ Que đo của RS41 gồm nhiệt điện trở Pt1000 và tụ đo ẩm polymer.
 3. Trong suốt chu kỳ nghỉ (15 - 30 phút), dòng qua que đo đo đạc thực tế = **$0.000\text{ mA}$**.
 4. Khóa bảo vệ vòng lặp Scheduler: Loại bỏ tình trạng scheduler đọc cưỡng bức que đo mỗi 2 giây, chỉ cho phép kích hoạt khi đạt đủ `sensorBoomPowerSavingInterval`.
 
-### 3.4. Giao tiếp Nút bấm duy nhất (Multi-Function Push Button)
+### 3.5. Giao tiếp Nút bấm duy nhất (Multi-Function Push Button)
 Firmware phân tích thời gian giữ và số lượng xung nhấn nút tại chân `VBTN`:
 ```
-   Nhấn 1 lần   ──> Kiểm tra pin & trạng thái (2 nháy Xanh = Tốt, 2 nháy Đỏ = Lỗi/Yếu)
+   Nhấn 1 lần   ──> Kiểm tra pin, trạng thái & chế độ (In ra Serial, LED Xanh/Đỏ)
    Nhấn đúp (2) ──> Phát khẩn cấp (Force TX tức thì, không chờ chu kỳ)
    Nhấn 3 lần   ──> Chuyển đổi Profile năng lượng (1 nháy = P1, 2 nháy = P2, 3 nháy = P3)
    Giữ > 2.5s   ──> TẮT NGUỒN HOÀN TOÀN (Kích hoạt mạch MOSFET ngắt pin triệt để)
 ```
 
-### 3.5. Tập lệnh điều khiển qua cổng nối tiếp (XDATA Serial CLI @ 9600 bps)
+### 3.6. Tập lệnh điều khiển qua cổng nối tiếp (XDATA Serial CLI @ 9600 bps)
 Cổng XDATA (chân RX/TX trên cổng mở rộng 10-pin) cung cấp giao diện dòng lệnh:
-- `STATUS`: Xuất toàn bộ dữ liệu telemetry trực tiếp (Vị trí, Vệ tinh, Điện áp pin, Nhiệt độ, Độ ẩm, Chu kỳ).
+- `STATUS`: Xuất toàn bộ dữ liệu telemetry trực tiếp (Vị trí, Vệ tinh, Điện áp pin, Nhiệt độ, Độ ẩm, Áp suất, Chế độ hoạt động).
 - `CMD:TX`: Ép phát 1 gói tin RF ngay lập tức.
 - `CMD:SHUTDOWN`: Tắt nguồn thiết bị từ xa qua lệnh Serial.
 - `CMD:REBOOT`: Khởi động lại vi điều khiển STM32.
+- `SET:MODE=<HYBRID|TRACKER|WEATHER>`: Cài đặt chế độ hoạt động (0: Hybrid, 1: Tracker Only, 2: Weather Station Only).
 - `SET:PROFILE=<1-3>`: Cài đặt profile năng lượng.
 - `SET:IV_MOVE=<sec>`: Đặt chu kỳ phát sóng khi xe chạy (5 - 3600s).
 - `SET:IV_STOP=<sec>`: Đặt chu kỳ phát sóng khi xe dừng đỗ (5 - 3600s).
@@ -200,6 +212,22 @@ Khi xe đỗ trong hầm hoặc nhà xe có mái che, GPS M10 có thể mất kh
        p.floatField("lon", numLon);
    }
    ```
+
+### 4.3. Bộ chỉ số Khí tượng & Điểm sương Magnus-Tetens
+Ngoài tọa độ GPS, trạm thu trích xuất toàn diện các thông số vi khí hậu từ que đo Vaisala và tính toán điểm sương ($T_d$) theo công thức thực nghiệm Magnus-Tetens chuẩn WMO:
+
+$$\alpha(T, RH) = \frac{17.27 \cdot T}{237.7 + T} + \ln\left(\frac{RH}{100}\right)$$
+
+$$T_d = \frac{237.7 \cdot \alpha(T, RH)}{17.27 - \alpha(T, RH)}$$
+
+Trong đó:
+- $T$: Nhiệt độ không khí đo từ que đo Pt1000 (°C).
+- $RH$: Độ ẩm tương đối đo từ cảm biến điện dung màng mỏng (%).
+- $T_d$: Điểm sương (°C) - biểu thị nhiệt độ mà tại đó hơi nước trong không khí bắt đầu ngưng tụ thành sương / đọng nước trên bề mặt xe hoặc kính chắn gió.
+
+**Định danh vai trò trạm thời tiết (`stationRole`):**
+- Khi xe di chuyển (`speed >= 2.5 km/h`): Gán nhãn `stationRole = "mobile"`, thể hiện trạm thời tiết di động.
+- Khi xe dừng đỗ (`speed < 2.5 km/h`): Gán nhãn `stationRole = "stationary"`, thể hiện trạm thời tiết tại chỗ.
 
 ---
 
