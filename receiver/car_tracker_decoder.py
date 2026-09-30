@@ -38,11 +38,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 HTTP_INGEST_URL = "http://localhost:3000/api/v1/telemetry/ingest"
 KEYSTORE_FILE = "/home/pi/iot_device_keys.json"
 
-# Ánh xạ alias thiết bị phần cứng tới ID trạm tĩnh / trạm di động tương ứng
-DEVICE_ALIAS_MAP = {
-    1: ["CAR01"],   # Thiết bị IOT-00000001 (xe VF8) tự động đồng bộ sang trạm CAR01
-    2: []
-}
 
 
 # 256-bit Root Master Key (K_master). Khóa chung của hệ thống để phái sinh khóa cho hàng triệu thiết bị!
@@ -369,15 +364,6 @@ def process_decoded_packet(pkt: dict, snr=None, rssi=None):
 
 
         forward_to_hoan_uk(universal_payload)
-
-        # Cập nhật đồng bộ các trạm ánh xạ (ví dụ: CAR01 trên Navbar / Stations Map)
-        dev_num = pkt.get("device_id")
-        if dev_num in DEVICE_ALIAS_MAP:
-            for alias in DEVICE_ALIAS_MAP[dev_num]:
-                if alias != callsign:
-                    alias_payload = dict(universal_payload)
-                    alias_payload["deviceId"] = alias
-                    forward_to_hoan_uk(alias_payload)
 
 
         # Log file

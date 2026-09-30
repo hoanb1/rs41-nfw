@@ -149,7 +149,7 @@ constexpr float horusV3FreqTable[] = {437.6};
 // Multi-frequency example: {437.6, 434.714, 433.8}
 // lowAltitudeFastTxMode and dataRecorder always use the first entry.
 
-#define HORUS_V3_CALLSIGN "CAR01"
+#define HORUS_V3_CALLSIGN "IOT01"
 // Payload callsign - each character adds 6 bits to the packet.
 
 constexpr uint16_t horusV3Bdr        = 100;  // Baudrate (bps), default 100

@@ -209,14 +209,8 @@ rtl_fm -d 0 -M usb -f 437.600M -s 48k -g 40 -p 0 \
       return packet_crc == calc_crc
   ```
 
-### 5.2. Cầu nối Đồng bộ Trạm Đa Giao thức (`DEVICE_ALIAS_MAP`)
-Hệ thống duy trì bảng ánh xạ bí danh để thiết bị phần cứng tự động đồng bộ sang mã trạm tương ứng trên Web:
-```python
-DEVICE_ALIAS_MAP = {
-    1: ["CAR01"],   # Thiết bị IOT-00000001 (VF8) đồng bộ sang trạm CAR01 trên Navbar
-    2: []
-}
-```
+### 5.2. Định danh Trạm Thống nhất (Single Source of Truth - SSOT)
+Hệ thống tuân thủ nguyên tắc định danh duy nhất (SSOT): Mỗi thiết bị phần cứng sử dụng trực tiếp mã định danh chuẩn `IOT-xxxxxxxx` (ví dụ `IOT-00000001`, `IOT-00000002`). Loại bỏ hoàn toàn các bí danh trung gian (như `CAR01`), đảm bảo tính nhất quán từ Firmware, RF Payload, Gateway Decoder đến Web UI & Database.
 
 ---
 
@@ -260,7 +254,7 @@ sequenceDiagram
 | **Điện áp pin** | **$2.92\text{ V}$** | **$2.90\text{ V}$** |
 | **Tín hiệu RF** | SNR: $-7.9\text{ dB}$, RSSI: $-118\text{ dBm}$ | SNR: $-4.0\text{ dB}$, RSSI: $-118\text{ dBm}$ |
 | **Gói tin mới** | `Sequence #1` | `Sequence #27` |
-| **Trạng thái Web**| **Online** (Đồng bộ song song sang `CAR01`) | **Online** (`hoan.uk/stations/IOT-00000002`) |
+| **Trạng thái Web**| **Online** (`hoan.uk/stations/IOT-00000001`) | **Online** (`hoan.uk/stations/IOT-00000002`) |
 
 ---
 
