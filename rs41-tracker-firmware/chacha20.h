@@ -92,4 +92,18 @@ static inline void chacha20_crypt(const uint8_t key[32], const uint8_t nonce[12]
     }
 }
 
+// Derive unique 256-bit Device Key from 256-bit Master Key and 32-bit Device ID
+// K_dev = ChaCha20_Block(MasterKey, Nonce=['KDF\0', DeviceID_LE, 0, 0], Counter=0)[0..31]
+static inline void chacha20_derive_key(const uint8_t master_key[32], uint32_t device_id, uint8_t derived_key[32]) {
+    uint8_t nonce[12] = {'K', 'D', 'F', 0};
+    nonce[4] = (uint8_t)(device_id & 0xFF);
+    nonce[5] = (uint8_t)((device_id >> 8) & 0xFF);
+    nonce[6] = (uint8_t)((device_id >> 16) & 0xFF);
+    nonce[7] = (uint8_t)((device_id >> 24) & 0xFF);
+    nonce[8] = 0; nonce[9] = 0; nonce[10] = 0; nonce[11] = 0;
+    uint8_t block[64];
+    chacha20_block(master_key, nonce, 0, block);
+    memcpy(derived_key, block, 32);
+}
+
 #endif // CHACHA20_H

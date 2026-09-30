@@ -1039,8 +1039,12 @@ int buildHorusV3Packet(char* uncoded_buffer){
     nonce[4] = (uint8_t)(horusV3PacketCount & 0xFF);
     nonce[5] = (uint8_t)((horusV3PacketCount >> 8) & 0xFF);
 
-    // 3. Encrypt 23 bytes in-place using ChaCha20
-    chacha20_crypt(iotDeviceKey, nonce, 1, plaintext, sizeof(plaintext));
+    // 3. Derive unique 256-bit Device Key from Master Key via ChaCha20-KDF
+    uint8_t deviceKey[32];
+    chacha20_derive_key(iotMasterKey, iotDeviceId, deviceKey);
+
+    // 4. Encrypt 23 bytes in-place using ChaCha20 with derived key
+    chacha20_crypt(deviceKey, nonce, 1, plaintext, sizeof(plaintext));
 
     // 4. Assemble 32-byte uncoded frame
     uncoded_buffer[2] = 0x03; // Protocol marker for Encrypted IoT Telemetry
@@ -6019,7 +6023,7 @@ bool runXdataCommand(const char* line) {
     xdataSerial.println(F(" SET:BOOM=<0/1>    : Bat/tat mach do cam bien nhiet am"));
     xdataSerial.println(F(" SET:ENC=<0/1>     : Bat/tat ma hoa ChaCha20 toan bo goi tin"));
     xdataSerial.println(F(" SET:ID=<id>       : Dat 32-bit Device ID (vi du: SET:ID=0x00000001)"));
-    xdataSerial.println(F(" SET:KEY=<64 hex>  : Dat 256-bit ChaCha20 Pre-Shared Key"));
+    xdataSerial.println(F(" SET:MASTER_KEY=<hex> : Dat 256-bit Root Master Key (64 hex)"));
     xdataSerial.println(F("========================================================\n"));
     return true;
   }
@@ -6121,7 +6125,7 @@ bool runXdataCommand(const char* line) {
     xdataSerial.print(F("Battery : ")); xdataSerial.print(readBatteryVoltage(), 2); xdataSerial.println(F(" V"));
     xdataSerial.print(F("IoT Security: "));
     if (iotEncryptionEnable) {
-      xdataSerial.print(F("ChaCha20 Full-Packet Encrypted (ID: 0x"));
+      xdataSerial.print(F("ChaCha20 Master-KDF Encrypted (ID: 0x"));
       xdataSerial.print(iotDeviceId, HEX);
       xdataSerial.println(F(")"));
     } else {
@@ -6210,15 +6214,15 @@ bool runXdataCommand(const char* line) {
     return true;
   }
 
-  if (strncmp(line, "SET:KEY=", 8) == 0) {
-    const char* hex = line + 8;
+  if (strncmp(line, "SET:MASTER_KEY=", 15) == 0 || strncmp(line, "SET:KEY=", 8) == 0) {
+    const char* hex = (strncmp(line, "SET:MASTER_KEY=", 15) == 0) ? (line + 15) : (line + 8);
     while (*hex == ' ') hex++;
     if (strlen(hex) >= 64) {
       for (int i = 0; i < 32; i++) {
         char byteStr[3] = { hex[i*2], hex[i*2 + 1], 0 };
-        iotDeviceKey[i] = (uint8_t)strtoul(byteStr, NULL, 16);
+        iotMasterKey[i] = (uint8_t)strtoul(byteStr, NULL, 16);
       }
-      xdataSerial.println(F("[cli]: OK - ChaCha20 256-bit Key updated"));
+      xdataSerial.println(F("[cli]: OK - 256-bit Root Master Key updated"));
     } else {
       xdataSerial.println(F("[cli]: ERR - Key must be 64 hex characters (32 bytes)"));
     }

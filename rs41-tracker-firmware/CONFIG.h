@@ -165,16 +165,17 @@ constexpr int8_t   horusPreambleLength = 12;  // Preamble length (bytes) - 12 by
    SECTION 5b - ENTERPRISE IOT SECURITY & ENCRYPTION (CHACHA20)
    Full-packet end-to-end encryption for tens of thousands of devices.
    Protects GPS location, speed, telemetry and sensor data from eavesdropping.
+   Uses Root Master Key (256-bit) + Dynamic KDF (Key Derivation Function)
    ============================================================ */
 
 bool     iotEncryptionEnable = true;            // Bat ma hoa toan bo goi tin (0 bit thua, an danh 100%)
 uint32_t iotDeviceId         = 0x00000001;      // 32-bit unique device address (supports 4.2+ billion IoT devices)
-uint8_t  iotDeviceKey[32]    = {
+uint8_t  iotMasterKey[32]    = {
   0x7a, 0x7a, 0xd8, 0x4d, 0xe5, 0x74, 0xbb, 0xa3,
   0xac, 0xaa, 0x13, 0xd0, 0x57, 0xcd, 0xd0, 0x00,
   0x82, 0x4e, 0x54, 0xcb, 0x95, 0x97, 0x9a, 0x22,
   0x0f, 0xe1, 0x69, 0x35, 0x06, 0x67, 0x89, 0xf5
-}; // 256-bit Pre-Shared Key (co the doi qua CLI: SET:KEY=...)
+}; // 256-bit Root Master Key (K_master). Khoa rieng cua tung thiet bi duoc tu dong phai sinh qua KDF!
 
 
 /* ============================================================

@@ -29,17 +29,23 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 HTTP_INGEST_URL = "http://localhost:3000/api/v1/telemetry/ingest"
 KEYSTORE_FILE = "/home/pi/iot_device_keys.json"
 
-# Default Master Pre-Shared Key (256-bit ChaCha20 Key)
-DEFAULT_IOT_KEY = bytes([
+# 256-bit Root Master Key (K_master). Khóa chung của hệ thống để phái sinh khóa cho hàng triệu thiết bị!
+ROOT_MASTER_KEY = bytes([
     0x7a, 0x7a, 0xd8, 0x4d, 0xe5, 0x74, 0xbb, 0xa3,
     0xac, 0xaa, 0x13, 0xd0, 0x57, 0xcd, 0xd0, 0x00,
     0x82, 0x4e, 0x54, 0xcb, 0x95, 0x97, 0x9a, 0x22,
     0x0f, 0xe1, 0x69, 0x35, 0x06, 0x67, 0x89, 0xf5
 ])
 
-DEVICE_KEYSTORE = {
-    1: DEFAULT_IOT_KEY,
-}
+DEVICE_KEYSTORE = {}
+
+def derive_device_key(master_key: bytes, device_id: int) -> bytes:
+    """Phái sinh khóa riêng 256-bit cho từng thiết bị từ Master Key qua ChaCha20-KDF"""
+    nonce = bytearray(12)
+    nonce[0:4] = b'KDF\x00'
+    nonce[4:8] = device_id.to_bytes(4, 'little')
+    block = chacha20_block(master_key, bytes(nonce), 0)
+    return block[:32]
 
 def load_keystore():
     """Tải danh bạ khóa mã hóa đa thiết bị từ JSON nếu có cấu hình"""
@@ -124,7 +130,7 @@ def decode_encrypted_iot_packet(data: bytes):
     seq = struct.unpack('>H', data[7:9])[0]
     ciphertext = data[9:32]
 
-    key = DEVICE_KEYSTORE.get(device_id, DEFAULT_IOT_KEY)
+    key = DEVICE_KEYSTORE.get(device_id) or derive_device_key(ROOT_MASTER_KEY, device_id)
     nonce = bytearray(12)
     nonce[0:4] = device_id.to_bytes(4, 'little')
     nonce[4:6] = seq.to_bytes(2, 'little')
