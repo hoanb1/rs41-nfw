@@ -24,7 +24,7 @@
    The PCB revision is printed at the bottom of the board.
    ============================================================ */
 
-// #define RSM4x4   // RSM4x4 or RSM4x5  (STM32L412RBT6,  LQFP64) - newer boards
+#define RSM4x4   // RSM4x4 or RSM4x5  (STM32L412RBT6,  LQFP64) - newer boards
 // #define RSM4x2   // RSM4x2 or RSM4x1  (STM32F100C8T6B, LQFP48) - older boards
 
 
@@ -74,7 +74,7 @@ constexpr uint16_t pipTimeSyncSeconds        = 15;
 constexpr uint16_t pipTimeSyncOffsetSeconds  = 0;
 
 // Horus Binary V3:
-constexpr uint16_t horusV3TimeSyncSeconds        = 15;
+constexpr uint16_t horusV3TimeSyncSeconds        = 60;
 constexpr uint16_t horusV3TimeSyncOffsetSeconds  = 0;
 
 // Horus Binary V2:
@@ -148,11 +148,11 @@ constexpr float horusV3FreqTable[] = {437.6};
 // Multi-frequency example: {437.6, 434.714, 433.8}
 // lowAltitudeFastTxMode and dataRecorder always use the first entry.
 
-#define HORUS_V3_CALLSIGN "4FSKTEST-V3"
+#define HORUS_V3_CALLSIGN "CAR01"
 // Payload callsign - each character adds 6 bits to the packet.
 
 constexpr uint16_t horusV3Bdr        = 100;  // Baudrate (bps), default 100
-constexpr int8_t   horusV3RadioPower  = 5;    // TX power (see Pip section for key)
+constexpr int8_t   horusV3RadioPower  = 7;    // TX power: 7=20 dBm (100 mW)
 constexpr bool     horusV3ExtraSensorsEnable = true; // Include extended telemetry fields (see above)
 
 // Shared Horus V2/V3 settings:
@@ -181,7 +181,7 @@ constexpr int8_t   horusRadioPower = 5;    // TX power (see Pip section for key)
    SECTION 7 - APRS MODE
    ============================================================ */
 
-constexpr bool aprsEnable = true;   // Enable APRS TX
+constexpr bool aprsEnable = false;   // Enable APRS TX
 
 constexpr float aprsFreqTable[] = {432.5};
 // Same format as horusV3FreqTable.
@@ -402,7 +402,7 @@ constexpr uint8_t gpsUpdateRateHz = 2;
    6 (Airborne <1g) is the default and the right choice for a high-altitude
    balloon; 8 (<4g) tolerates higher accelerations; 2 (Stationary) suits a fixed
    WX station. */
-constexpr uint8_t gpsDynamicModel = 6;
+constexpr uint8_t gpsDynamicModel = 4; // 4 = Automotive (optimized for car tracking)
 
 /* Secondary GNSS (RSM4x4 / M10 only). GPS + Galileo + SBAS always run; this picks what
    else the single-band M10 tracks. gpsSecondaryGnss:
@@ -495,12 +495,8 @@ unsigned long     gpsPowerSaveDebounce = 60000;  // Min interval before climbing
    ============================================================ */
 
 bool sensorBoomEnable      = true;   // Enable sensor boom measurements and diagnostics
-constexpr bool sensorBoomPowerSaving = false;  // Power saving: read the boom only every sensorBoomPowerSavingInterval.
-                                               // Recommended: set the interval below to match your transmission interval, so the
-                                               // boom is read once per frame. The data stays as fresh as the telemetry and the
-                                               // measurement circuits sit idle the rest of the time - up to ~50% less measurement
-                                               // power at a 10 s frame versus reading continuously between transmissions.
-unsigned long sensorBoomPowerSavingInterval = 10000; // Boom read interval in power-saving mode (ms), default 10000 = 10 s (match to your TX interval)
+constexpr bool sensorBoomPowerSaving = true;  // Power saving: read the boom only every sensorBoomPowerSavingInterval.
+unsigned long sensorBoomPowerSavingInterval = 60000; // Boom read interval in power-saving mode (ms), matched to 60s TX interval
 
 
 /* ============================================================
@@ -574,7 +570,7 @@ const float factoryMatrixU[42] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
        while holding ~140 °C, reads humidity. A bone-dry sensor must read < 5 %RH; a
        higher reading, or failure to exceed 115 °C within the minute, flags an error. */
 bool factoryTemperatureCheck = true;
-bool factoryHumidityCheck    = true;
+bool factoryHumidityCheck    = false; // Disabled for car: do not heat up to 140 C
 #endif  // RSM4x4 factory-calibration block (Section 15b)
 
 
@@ -703,15 +699,15 @@ constexpr float   seaLevelPressure = 1013.25;  // MSL pressure (hPa) - used only
      resumes automatically as the fall slows down. Never changes anything on ascent.
    ============================================================ */
 
-bool          referenceHeating                          = true;
+bool          referenceHeating                          = false; // Disabled for car
 constexpr int8_t referenceAreaTargetTemperature         = 18;  // Target temperature (°C)
 
-bool          humidityModuleHeating                     = true;
+bool          humidityModuleHeating                     = false; // Disabled for car
 constexpr int8_t defrostingOffset                       = 5;   // K above air temp to prevent frost
 constexpr int8_t humicapMinimumTemperature              = -40; // °C - humicap accuracy degrades below this
 constexpr int8_t humidityModuleHeatingTemperatureThreshold = 45; // Heating activates below this °C (upper cap on module heating)
 
-bool          heatersPowerOptimisation                  = true; // Lower heating targets during the fast fall after burst (see above)
+bool          heatersPowerOptimisation                  = false;
 
 
 /* ============================================================
@@ -725,7 +721,7 @@ bool          heatersPowerOptimisation                  = true; // Lower heating
    Set lowAltitudeFastTxThreshold = 0 to disable this mode.
    ============================================================ */
 
-constexpr uint16_t      lowAltitudeFastTxThreshold = 1000;    // Altitude threshold (m)
+constexpr uint16_t      lowAltitudeFastTxThreshold = 0;       // 0 = disabled for car
 constexpr unsigned long lowAltitudeFastTxDuration  = 480000;  // Active duration (ms); default 8 min
 constexpr uint16_t      lowAltitudeFastTxInterval  = 1;       // Inter-TX delay (ms); 1 = as fast as possible
 
@@ -780,7 +776,7 @@ constexpr uint16_t flightStartClimbThreshold = 300; // Climb (m) above the launc
                                                     // zero-pressure balloons). Replaces previous flightDetectionAltitude.
 constexpr uint16_t flightBaselineSettleTime = 15000; // Time (ms) to wait after the first GPS fix before latching the launch
                                                      // baseline, so a cold-start altitude (often 100-200 m off) can converge.
-constexpr uint16_t burstDetectionThreshold = 800; // Altitude drop below maxAlt confirming burst (m)
+constexpr uint16_t burstDetectionThreshold = 0; // 0 = disabled for car (avoids false trigger when driving down hills)
 
 
 /* ============================================================
