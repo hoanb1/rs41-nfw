@@ -35,7 +35,7 @@ except ImportError:
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-HTTP_INGEST_URL = "http://localhost:3000/api/v1/telemetry/ingest"
+HTTP_INGEST_URL = "http://localhost:3000/api/telemetry/ingest"
 KEYSTORE_FILE = "/home/pi/iot_device_keys.json"
 
 # Ánh xạ alias thiết bị phần cứng tới ID trạm tĩnh / trạm di động tương ứng
@@ -345,6 +345,12 @@ def process_decoded_packet(pkt: dict, snr=None, rssi=None):
             "stationRole": "mobile" if is_moving else "stationary",
             "protocol": "chacha20_4fsk" if is_encrypted else "horus_v3",
             "timestamp": datetime.now().isoformat(),
+            "environment_temperature": temp,
+            "environment_humidity": humidity,
+            "environment_pressure": pressure,
+            "system_voltage": batt,
+            "speed": speed,
+            "sats": loc_dict.get("sats", 0),
             "location": loc_dict,
             "environment": {
                 "temperature": temp,
@@ -361,6 +367,11 @@ def process_decoded_packet(pkt: dict, snr=None, rssi=None):
             },
             "raw": pkt
         }
+        if has_valid_fix:
+            universal_payload["lat"] = lat
+            universal_payload["lon"] = lon
+            universal_payload["alt"] = alt
+
 
         forward_to_hoan_uk(universal_payload)
 
