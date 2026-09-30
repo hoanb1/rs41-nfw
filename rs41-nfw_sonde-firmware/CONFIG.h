@@ -528,7 +528,7 @@ unsigned long sensorBoomPowerSavingInterval = 60000; // Boom read interval in po
    when you load a serial number.
    ============================================================ */
 #if defined(RSM4x4) || defined(RSM4x2)
-uint8_t sensorCalibrationMode = 2;   // 1 = NFW, 2 = factory (Vaisala). RSM4x4/4x5: selectable. RSM4x2/4x1: factory only.
+uint8_t sensorCalibrationMode = 1;   // 1 = NFW, 2 = factory (Vaisala). RSM4x4/4x5: selectable. RSM4x2/4x1: factory only.
 
 // --- Factory calibration coefficients (filled per-serial from SondeHub) ---
 // Reference resistors (Ohm) / capacitors (pF):
@@ -569,7 +569,7 @@ const float factoryMatrixU[42] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
        Reconditions the humidity sensor (heats it to ~140 °C for one minute), then,
        while holding ~140 °C, reads humidity. A bone-dry sensor must read < 5 %RH; a
        higher reading, or failure to exceed 115 °C within the minute, flags an error. */
-bool factoryTemperatureCheck = true;
+bool factoryTemperatureCheck = false;
 bool factoryHumidityCheck    = false; // Disabled for car: do not heat up to 140 C
 #endif  // RSM4x4 factory-calibration block (Section 15b)
 
@@ -603,7 +603,7 @@ bool factoryHumidityCheck    = false; // Disabled for car: do not heat up to 140
 float mainTemperatureCorrectionC              = 0;
 float extHeaterTemperatureCorrectionC         = 35;
 constexpr bool autoHumidityModuleTemperatureCorrection = true;
-constexpr bool autoTemperatureCalibration              = true;
+constexpr bool autoTemperatureCalibration              = false;
 
 /* autoTemperatureCalibrationMethod:
    1 - Use a known ambient temperature (environmentStartupAirTemperature).
@@ -639,8 +639,8 @@ constexpr uint8_t reconditioningTemperature = 140; // °C
         The sonde will then skip calibration on subsequent startups.
 
    Environment: indoors, 5-40 °C, 0-60 %RH, still air. */
-bool  zeroHumidityCalibration = true;
-float zeroHumidityCapacitance = 0;   // 0 %RH capacitance reading from calibration (leave 0 for auto-cal)
+bool  zeroHumidityCalibration = false;
+float zeroHumidityCapacitance = 38.0;   // 0 %RH capacitance reading from calibration (leave 0 for auto-cal)
 
 /* humidityCapacitanceRangeDelta - delta between 0 %RH and 100 %RH capacitance.
    The default is an empirical average from many sensor booms.
@@ -666,7 +666,7 @@ constexpr uint8_t       humidityCalibrationMeasurementTemperature = 125;  // Min
          Order-of-magnitude accuracy only - use mode 1 (RPM411) when you have the sensor.
    ============================================================ */
 
-constexpr uint8_t pressureMode     = 1;
+constexpr uint8_t pressureMode     = 2;
 constexpr float   seaLevelPressure = 1013.25;  // MSL pressure (hPa) - used only in mode 2
 
 
