@@ -39,6 +39,12 @@ ROOT_MASTER_KEY = bytes([
 
 DEVICE_KEYSTORE = {}
 
+# Ánh xạ Device ID sang mã trạm gợi nhớ / định danh quen thuộc (Legacy Station Aliases)
+DEVICE_ALIAS_MAP = {
+    1: ["CAR01"],
+    2: ["CAR01"],  # Thiết bị định vị ô tô cá nhân CAR01
+}
+
 def derive_device_key(master_key: bytes, device_id: int) -> bytes:
     """Phái sinh khóa riêng 256-bit cho từng thiết bị từ Master Key qua ChaCha20-KDF"""
     nonce = bytearray(12)
@@ -370,6 +376,15 @@ def process_line(line):
 
             # 1. Forward directly to hoan.uk ingestion API
             forward_to_hoan_uk(universal_payload)
+
+            # 1b. Cập nhật đồng bộ các trạm ánh xạ (ví dụ: CAR01 trên Navbar / Stations Map)
+            dev_num = pkt.get("device_id")
+            if dev_num in DEVICE_ALIAS_MAP:
+                for alias in DEVICE_ALIAS_MAP[dev_num]:
+                    if alias != callsign:
+                        alias_payload = dict(universal_payload)
+                        alias_payload["deviceId"] = alias
+                        forward_to_hoan_uk(alias_payload)
 
             # 2. Append local log
             log_path = "/home/pi/car_tracker.log" if os.path.exists("/home/pi") else "/tmp/car_tracker.log"
