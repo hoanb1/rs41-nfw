@@ -251,6 +251,7 @@ void pipTx() {
         xdataSerial.println("[info]: Transmitting PIP...");
       }
 
+      flashGreenLedTx();
       for (txRepeatCounter; txRepeatCounter < pipRepeat; txRepeatCounter++) {
         radioEnableTx();
 
@@ -312,6 +313,7 @@ void morseTx() {
         xdataSerial.println("[info]: Transmitting morse...");
       }
 
+      flashGreenLedTx();
       uint8_t morseRepeats = morseBeaconMode ? (morseBeaconRepeat == 0 ? 1 : morseBeaconRepeat) : 1;
       for (uint8_t r = 0; r < morseRepeats; r++) {
         transmitMorseString(morseMsgCstr, morseUnitTime);
@@ -356,6 +358,7 @@ void rttyTx() {
         xdataSerial.println(rttyFreq);
       }
 
+      flashGreenLedTx();
       radioEnableTx();
 
       if (xdataPortMode == 1) {
@@ -410,6 +413,7 @@ void horusTx() {
           xdataSerial.println(currentFreq);
         }
 
+        flashGreenLedTx();
         radioEnableTx();
         fsk4_preamble(horusPreambleLength);
         fsk4_write(codedbuffer, coded_len);
@@ -490,6 +494,7 @@ void horusV3Tx() {
         }
 
         // 3. Physical Transmission
+        flashGreenLedTx();
         radioEnableTx();
 
         fsk4_preamble(horusPreambleLength);
@@ -556,6 +561,7 @@ void aprsTx() {
 
         aprsPacketNum++;
 
+        flashGreenLedTx();
         radioEnableTx();
         for (int i = 0; i < 128; i++) {
           aprsSendMark();
@@ -642,6 +648,7 @@ void dataRecorderTx() {
       xdataSerial.println("B");
     }
 
+    flashGreenLedTx();
     radioEnableTx();
     fsk4_preamble(horusPreambleLength);
     fsk4_write(codedbuffer, coded_len);

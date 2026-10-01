@@ -19,6 +19,7 @@ void redLed();
 void greenLed();
 void orangeLed();
 void bothLedOff();
+void flashGreenLedTx();
 void deviceStatusHandler();
 void serialStatusHandler();
 

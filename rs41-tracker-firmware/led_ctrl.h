@@ -22,8 +22,19 @@ void bothLedOff() {
 }
 
 
+// Ham chop xanh sieu ngan khi phat song (35ms pulse - sieu tiet kiem dien)
+void flashGreenLedTx() {
+  if (ledStatusEnable) {
+    greenLed();
+    delay(35);
+    bothLedOff();
+  }
+}
+
+static unsigned long statusLedTimer = 0;
+static unsigned long statusLedPulseUntil = 0;
+
 void deviceStatusHandler() {
-  // Status model is intentionally simple: only OK or ERR (no 'warn' state).
   vBatWarn = false;
   gpsFixWarn = false;
 
@@ -35,16 +46,18 @@ void deviceStatusHandler() {
     vBatWarn = true;
   }
 
-  if (gpsSats < gpsSatsWarnValue) {
+  // Kiem tra GPS Fix: so luong ve tinh < gpsSatsWarnValue hoac chua co toa do hop le
+  bool hasGpsFix = (gpsSats >= gpsSatsWarnValue) && (fabs(gpsLat) > 0.0001f || fabs(gpsLong) > 0.0001f);
+
+  if (!hasGpsFix) {
     if (gpsOperationMode == 0) {
       gpsFixWarn = false;
-
     } else {
       gpsFixWarn = true;
-
       setStage("50");
     }
   } else {
+    gpsFixWarn = false;
     if (xdataPortMode == 1 || xdataPortMode == 3) {
       setStage("59");
     }
@@ -70,13 +83,38 @@ void deviceStatusHandler() {
     }
 
     if (ledsEnable) {
-      // Tiet kiem pin toi da (tranh tieu thu 15-20mA): Tat den LED hoan toan khi hoat dong
-      // Khi mat GPS hoac dang tim ve tinh, he thong van tu dong xu ly ngam ma KHONG bat den sang lien tuc
-      // Nguoi dung co the nhan nut 1 lan (single click) bat cu luc nao de kiem tra trang thai qua den LED.
+      unsigned long now = millis();
+
+      // Tat LED sau khi het thoi gian xung nhay micro-pulse (25ms)
+      if (statusLedPulseUntil != 0 && (long)(now - statusLedPulseUntil) >= 0) {
+        bothLedOff();
+        statusLedPulseUntil = 0;
+      }
+
+      // Kich hoat xung nhay dinh ky (moi 4 giay mot lan - duty cycle < 0.6% de tiet kiem pin tuyet doi)
+      if (now - statusLedTimer >= 4000UL) {
+        statusLedTimer = now;
+        if (err) {
+          // Loi phan cung hoac pin yeu: nhay chop mau Do
+          redLed();
+          statusLedPulseUntil = now + 25UL;
+        } else if (gpsFixWarn) {
+          // Khong fix duoc GPS: nhay chop mau Cam (Red + Green cung sang 25ms)
+          orangeLed();
+          statusLedPulseUntil = now + 25UL;
+        } else {
+          // Binh thuong va da fix GPS: tat ca 2 LED de tiet kiem pin tuyet doi (0 mA)
+          bothLedOff();
+          statusLedPulseUntil = 0;
+        }
+      }
+    } else {
       bothLedOff();
+      statusLedPulseUntil = 0;
     }
   } else {
     bothLedOff();
+    statusLedPulseUntil = 0;
   }
 }
 

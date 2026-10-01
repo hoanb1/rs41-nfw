@@ -149,7 +149,7 @@ constexpr float horusV3FreqTable[] = {437.6};
 // Multi-frequency example: {437.6, 434.714, 433.8}
 // lowAltitudeFastTxMode and dataRecorder always use the first entry.
 
-#define HORUS_V3_CALLSIGN "IOT01"
+#define HORUS_V3_CALLSIGN "IOT03"
 // Payload callsign - each character adds 6 bits to the packet.
 
 constexpr uint16_t horusV3Bdr        = 100;  // Baudrate (bps), default 100
@@ -169,7 +169,7 @@ constexpr int8_t   horusPreambleLength = 12;  // Preamble length (bytes) - 12 by
    ============================================================ */
 
 bool     iotEncryptionEnable = true;            // Bat ma hoa toan bo goi tin (0 bit thua, an danh 100%)
-uint32_t iotDeviceId         = 0x00000001;      // 32-bit unique device address (supports 4.2+ billion IoT devices)
+uint32_t iotDeviceId         = 0x00000003;      // 32-bit unique device address (supports 4.2+ billion IoT devices)
 uint8_t  iotMasterKey[32]    = {
   0x7a, 0x7a, 0xd8, 0x4d, 0xe5, 0x74, 0xbb, 0xa3,
   0xac, 0xaa, 0x13, 0xd0, 0x57, 0xcd, 0xd0, 0x00,
