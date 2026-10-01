@@ -169,7 +169,8 @@ constexpr int8_t   horusPreambleLength = 12;  // Preamble length (bytes) - 12 by
    ============================================================ */
 
 bool     iotEncryptionEnable = true;            // Bat ma hoa toan bo goi tin (0 bit thua, an danh 100%)
-uint32_t iotDeviceId         = 0x00000003;      // 32-bit unique device address (supports 4.2+ billion IoT devices)
+bool     iotAutoDeviceId     = true;            // Tu dong sinh 32-bit ID khong trung lap tu 96-bit STM32 silicon UID
+uint32_t iotDeviceId         = 0x00000000;      // Neu bang 0 hoac iotAutoDeviceId=true: tu dong băm Murmur3 tu chip UID!
 uint8_t  iotMasterKey[32]    = {
   0x7a, 0x7a, 0xd8, 0x4d, 0xe5, 0x74, 0xbb, 0xa3,
   0xac, 0xaa, 0x13, 0xd0, 0x57, 0xcd, 0xd0, 0x00,

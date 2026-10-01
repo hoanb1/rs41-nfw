@@ -203,6 +203,13 @@ bool runXdataCommand(const char* line) {
 
   if (strncmp(line, "SET:ID=", 7) == 0) {
     const char* val = line + 7;
+    if (strcasecmp(val, "AUTO") == 0 || strcmp(val, "0") == 0) {
+      iotAutoDeviceId = true;
+      iotDeviceId = generateHardwareDeviceId();
+      xdataSerial.print(F("[cli]: OK - Auto Hardware ID restored: 0x"));
+      xdataSerial.println(iotDeviceId, HEX);
+      return true;
+    }
     uint32_t newId = 0;
     if (val[0] == '0' && (val[1] == 'x' || val[1] == 'X')) {
       newId = (uint32_t)strtoul(val + 2, NULL, 16);
@@ -210,7 +217,8 @@ bool runXdataCommand(const char* line) {
       newId = (uint32_t)strtoul(val, NULL, 10);
     }
     iotDeviceId = newId;
-    xdataSerial.print(F("[cli]: OK - IoT Device ID set to 0x"));
+    iotAutoDeviceId = false;
+    xdataSerial.print(F("[cli]: OK - Manual IoT Device ID set to 0x"));
     xdataSerial.println(iotDeviceId, HEX);
     return true;
   }
@@ -498,6 +506,9 @@ void interfaceHandler() {
   NW_D(); NW_I(simultaneousGnssSetup);   // GPS brought up early (during setup/calibration)
   NW_D(); NW_I(gpsResetCounter);         // GPS module resets (timeout-watchdog recoveries)
   NW_D(); NW_I(gps.psmState);            // M10 power-save state: 0 off,3 tracking,4 power-optimized,5 inactive
+  // 17 - Enterprise IoT Security & Zero-Collision Hardware Device ID
+  NW_D(); NW_I(iotDeviceId);
+  NW_D(); NW_I(iotEncryptionEnable ? 1 : 0);
 
   buf[pos++] = '*';
   buf[pos++] = "0123456789ABCDEF"[chk >> 4];

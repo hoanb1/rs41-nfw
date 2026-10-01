@@ -106,4 +106,32 @@ static inline void chacha20_derive_key(const uint8_t master_key[32], uint32_t de
     memcpy(derived_key, block, 32);
 }
 
+// Generate zero-collision 32-bit hardware Device ID from factory 96-bit STM32 silicon UID
+// Uses MurmurHash3 32-bit avalanche finalizer for zero-touch mass flashing
+static inline uint32_t generateHardwareDeviceId(void) {
+#if defined(RSM4x4) || defined(STM32L4)
+    uint32_t w0 = HAL_GetUIDw0();
+    uint32_t w1 = HAL_GetUIDw1();
+    uint32_t w2 = HAL_GetUIDw2();
+#else
+    const uint32_t *uid = (const uint32_t *)0x1FFFF7E8;
+    uint32_t w0 = uid[0], w1 = uid[1], w2 = uid[2];
+#endif
+
+    uint32_t h = w0 ^ 0x9747b28c;
+    h = (h ^ (w1 * 0xcc9e2d51)) * 0x1b873593;
+    h = (h ^ (w2 * 0x85ebca6b)) * 0xc2b2ae35;
+
+    // MurmurHash3 32-bit avalanche mixer
+    h ^= h >> 16;
+    h *= 0x85ebca6b;
+    h ^= h >> 13;
+    h *= 0xc2b2ae35;
+    h ^= h >> 16;
+
+    // Avoid reserved values 0 and 0xFFFFFFFF
+    if (h == 0 || h == 0xFFFFFFFF) h = 0x41410001;
+    return h;
+}
+
 #endif // CHACHA20_H

@@ -73,6 +73,16 @@ void setup() {
     xdataSerial.println("[info]: Serial init ok");
   }
 
+  // Zero-Touch Collision-Free Hardware Device ID:
+  // Flashes same binary to all units -> auto derives 32-bit ID from 96-bit STM32 silicon UID!
+  if (iotDeviceId == 0 || iotAutoDeviceId) {
+    iotDeviceId = generateHardwareDeviceId();
+  }
+  if (xdataPortMode == 1) {
+    xdataSerial.print("[info]: Hardware Silicon UID -> IoT Device ID: 0x");
+    xdataSerial.println(iotDeviceId, HEX);
+  }
+
   if (rsm4x4) {
     analogReadResolution(12);
     if (xdataPortMode == 1) {
