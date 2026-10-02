@@ -63,7 +63,9 @@ void hardwarePowerShutdown() {
 }
 
 void buttonHandlerSimplified() {  
-  if (analogRead(VBTN_PIN) + 50 > analogRead(VBAT_PIN) && analogRead(VBAT_PIN) > 80) {
+  uint16_t adcBtn = analogRead(VBTN_PIN);
+  uint16_t adcVbat = analogRead(VBAT_PIN);
+  if (adcBtn > 400 || (adcVbat > 80 && adcBtn + 200 > adcVbat)) {
     if (buttonMode > 0) {
       hardwarePowerShutdown();
     }
@@ -73,9 +75,11 @@ void buttonHandlerSimplified() {
 void buttonHandler() {
   if (buttonMode == 0) return;
 
-  // Pin check: button is pressed if VBTN pin voltage approaches or exceeds VBAT pin voltage
-  // and battery voltage is sane (> 80 ADC counts, so it won't trigger while programmer-powered only)
-  bool isPressed = (analogRead(VBTN_PIN) + 50 > analogRead(VBAT_PIN) && analogRead(VBAT_PIN) > 80);
+  // Pin check: button is pressed if VBTN pin voltage goes HIGH (> 400 counts)
+  // or approaches VBAT (supports both 12-bit L412 and 10-bit F100, USB or battery)
+  uint16_t adcBtn = analogRead(VBTN_PIN);
+  uint16_t adcVbat = analogRead(VBAT_PIN);
+  bool isPressed = (adcBtn > 400 || (adcVbat > 80 && adcBtn + 200 > adcVbat));
 
   static unsigned long btnPressStartTime = 0;
   static unsigned long btnReleaseTime = 0;
@@ -91,6 +95,7 @@ void buttonHandler() {
       wasPressed = true;
       btnPressStartTime = now;
       shutdownTriggered = false;
+      greenLed(); // Instant visual feedback on press
     } else {
       // Button is being held down
       unsigned long holdDuration = now - btnPressStartTime;

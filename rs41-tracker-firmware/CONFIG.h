@@ -439,7 +439,7 @@ constexpr uint8_t gpsDynamicModel = 4; // 4 = Automotive (optimized for car trac
    QZSS is a separate regional system whose satellites are only visible over Japan, East/
    South-East Asia, Australia and the west Pacific - off by default, turn it on only if you
    launch inside that region. The older u-blox 6 boards ignore all of this. */
-constexpr uint8_t gpsSecondaryGnss = 1;  // 1 = BeiDou B1I only (required for cyclic tracking)
+constexpr uint8_t gpsSecondaryGnss = 0;  // 0 = BeiDou (B1C) + GLONASS -> Quad-Constellation (GPS + Galileo + BeiDou-3 + GLONASS + QZSS)
 constexpr bool gpsQzssEnable = true;   // regional (Asia-Pacific only); enabled for Vietnam
 
 /* Extra u-blox options (v68). Each is checked against the receiver's ACK; a
@@ -453,8 +453,8 @@ constexpr bool gpsHardwareJammingMonitor = true;  // poll the 0..255 CW jamming 
 
 /* Advanced GPS Accuracy & Noise Reduction Filters (Car Tracker & Weather Station) */
 constexpr bool     gpsStaticHoldEnable        = true; // Enable u-blox Static Hold (pins coords when speed < threshold)
-constexpr uint8_t  gpsStaticHoldThreshCmS     = 50;   // Velocity threshold: 50 cm/s = 0.5 m/s = 1.8 km/h
-constexpr uint16_t gpsStaticHoldMaxDistM      = 20;   // Distance threshold before releasing static hold: 20 m
+constexpr uint8_t  gpsStaticHoldThreshCmS     = 40;   // Velocity threshold: 40 cm/s = 0.4 m/s = 1.4 km/h
+constexpr uint16_t gpsStaticHoldMaxDistM      = 15;   // Distance threshold before releasing static hold: 15 m
 constexpr bool     gpsStationaryAnchorEnable  = true; // Firmware software anchor: clamps position while parked
 constexpr float    gpsMaxPlausibleSpeedKph    = 180.0f; // Kinematic outlier gate: reject jumps implying > 180 km/h
 constexpr float    gpsMaxAcceptableHdop       = 4.5f;   // pDOP quality gate: reject fixes with degraded geometry
@@ -466,7 +466,7 @@ constexpr float    gpsMaxAcceptableHdop       = 4.5f;   // pDOP quality gate: re
      0 = Max sensitivity     (0 deg elevation, low C/N0 - fight for every satellite) - default
      1 = Balanced            (4 deg elevation, moderate C/N0)
      2 = Ultra power saving  (8 deg elevation, high C/N0) */
-constexpr uint8_t gpsTrackingProfile = 2; // 2 = Ultra power saving
+constexpr uint8_t gpsTrackingProfile = 0; // 0 = Max sensitivity (fights for every satellite in urban canyons)
 
 /* GPS timeout watchdog - resets the GPS module only after it stays unhealthy (no fix, or
    solutions stopped refreshing) for this many ms without interruption. A brief dip to a few
@@ -480,7 +480,7 @@ unsigned long gpsTimeoutWatchdog = 900000;
    desensitise the GPS receiver; silencing it dramatically speeds up cold starts.
    disableGpsImprovementInFlight stops the silence during flight (avoids 2 min
    data gaps). If flying in high-interference areas, set this false instead. */
-constexpr bool improvedGpsPerformance        = false;
+constexpr bool improvedGpsPerformance        = false; // Do not mute radio indoors when sats < 4
 constexpr bool disableGpsImprovementInFlight = true;
 unsigned long radioSilenceDuration          = 120000; // Radio-silence window (ms)
 // After a fix is acquired in radio-quiet mode, stay quiet this much longer before letting

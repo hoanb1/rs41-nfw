@@ -137,8 +137,19 @@ bool runXdataCommand(const char* line) {
   }
 
   if (strncmp(line, "CMD:TX", 6) == 0) {
-    forceTxRequested = true;
     xdataSerial.println(F("[cli]: OK - Force TX triggered"));
+    triggerImmediateTx(false);
+    return true;
+  }
+
+  if (strncmp(line, "CMD:ADC", 7) == 0) {
+    xdataSerial.print(F("[adc]: VBAT="));
+    xdataSerial.print(analogRead(VBAT_PIN));
+    xdataSerial.print(F(" ("));
+    xdataSerial.print(readBatteryVoltage(), 2);
+    xdataSerial.print(F("V), VBTN="));
+    xdataSerial.print(analogRead(VBTN_PIN));
+    xdataSerial.println();
     return true;
   }
 
