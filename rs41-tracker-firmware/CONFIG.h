@@ -180,6 +180,14 @@ uint8_t  iotMasterKey[32]    = {
 
 
 /* ============================================================
+   SECTION 5c - VAISALA RS41 GFSK TELEMETRY (RDZ TTGO SONDE COMPATIBLE)
+   ============================================================ */
+constexpr bool     rs41Enable          = true;     // Phat RS41 GFSK chuan cho rdzTTGOSonde
+constexpr float    rs41FrequencyMhz    = 437.600f; // Tan so trung khop kenh RDZ TTGO 437.600 MHz
+constexpr int8_t   rs41RadioPower      = 5;        // Cong suat 25 mW
+
+
+/* ============================================================
    SECTION 6 - HORUS BINARY V2 MODE
    NOTE: Horus V3 is strongly preferred - V2 is included for
    compatibility with older receiver installations only.

@@ -4,6 +4,7 @@
 #include "radio_si4032.h"
 #include "payload_builders.h"
 #include "sensors_boom.h"
+#include "rs41_protocol.h"
 
 #ifdef RSM4x4
 // Private landing latch: once the sonde has flown, climbed above the threshold
@@ -432,6 +433,28 @@ void horusTx() {
   }
 }
 #endif
+ 
+void rs41Tx() {
+  if (rs41Enable) {
+    if (xdataPortMode == 1) {
+      xdataSerial.println(F("[info]: RS41 GFSK transmitting..."));
+    }
+    if (radioEnablePA) {
+      flashGreenLedTx();
+      rs41PacketNum++;
+      char sondeId[9] = "IOT03001";
+      rs41_transmit_packet(rs41FrequencyMhz, rs41RadioPower, rs41PacketNum, sondeId,
+                           readBatteryVoltage(), gpsLat, gpsLong, gpsAlt, gpsSpeedKph, gpsSats);
+      if (xdataPortMode == 1) {
+        xdataSerial.println(F("[info]: RS41 GFSK TX done."));
+      }
+    } else {
+      if (xdataPortMode == 1) {
+        xdataSerial.println(F("[info]: radioEnablePA false, won't transmit"));
+      }
+    }
+  }
+}
 
 void horusV3Tx() {
   // Calculate the number of frequencies in the table automatically

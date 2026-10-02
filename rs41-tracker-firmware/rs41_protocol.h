@@ -68,8 +68,8 @@ static void rs41_wgs84_to_ecef(double lat, double lon, double alt, int32_t &x_cm
   z_cm = (int32_t)(z * 100.0);
 }
 
-// 8-byte RS41 Sync Word (transmitted on-air)
-static const uint8_t RS41_SYNC_BYTES[8] = { 0x10, 0xB6, 0xCA, 0x11, 0x22, 0x96, 0x12, 0xF8 };
+// 8-byte RS41 Sync Word matching SX1278 hardware config in rdzTTGOSonde
+static const uint8_t RS41_SYNC_BYTES[8] = { 0x08, 0x6D, 0x53, 0x88, 0x44, 0x69, 0x48, 0x1F };
 
 // Builds a standard 320-byte RS41 GFSK frame compatible with rdzTTGOSonde
 static void rs41_build_frame(uint8_t* raw_frame, uint16_t frameNum, const char* serial, float batV, double lat, double lon, float alt, float speedKph, uint8_t sats) {
@@ -84,7 +84,7 @@ static void rs41_build_frame(uint8_t* raw_frame, uint16_t frameNum, const char* 
   raw_frame[p++] = (uint8_t)(frameNum & 0xFF);
   raw_frame[p++] = (uint8_t)((frameNum >> 8) & 0xFF);
   
-  // 8 chars serial number (e.g. "IOT-D843")
+  // 8 chars serial number (e.g. "IOT03001")
   for (int i = 0; i < 8; i++) {
     raw_frame[p++] = (serial && serial[i]) ? serial[i] : ' ';
   }
@@ -138,20 +138,23 @@ static void rs41_scramble_and_reverse(const uint8_t* in_frame, uint8_t* out_tx, 
   }
 }
 
-// High-speed precision 4800 baud bit-bang transmitter on Si4032 (208.33 us per bit)
+// Precise 4800 baud bit-bang transmitter on Si4032 (208.33 us per bit)
 static void rs41_tx_byte(uint8_t b) {
   // Transmit MSB first
   for (int i = 7; i >= 0; i--) {
+    uint32_t t_start = micros();
     if ((b >> i) & 1) {
-      setRadioSmallOffset(0x04); // +2.5 kHz deviation (Mark)
+      setRadioSmallOffset(0x1F); // Mark: +4.8 kHz (+2.4 kHz above center)
     } else {
-      setRadioSmallOffset(0x00); // 0 deviation (Space)
+      setRadioSmallOffset(0x00); // Space: 0 kHz (-2.4 kHz below center)
     }
-    delayMicroseconds(208); // 4800 bps bit timing
+    while ((uint32_t)(micros() - t_start) < 208) {
+      // Precise bit duration loop, jitter-free
+    }
   }
 }
 
-// Transmit full RS41 GFSK packet (Preamble + Sync Word + 320 Scrambled Bytes)
+// Transmit full RS41 GFSK packet (Preamble + Sync Word + 312 Scrambled Bytes)
 static void rs41_transmit_packet(float freqMhz, uint8_t power, uint16_t frameNum, const char* serial, float batV, double lat, double lon, float alt, float speedKph, uint8_t sats) {
   static uint8_t raw[320];
   static uint8_t tx_scrambled[320];
@@ -159,26 +162,28 @@ static void rs41_transmit_packet(float freqMhz, uint8_t power, uint16_t frameNum
   rs41_build_frame(raw, frameNum, serial, batV, lat, lon, alt, speedKph, sats);
   rs41_scramble_and_reverse(raw, tx_scrambled, 320);
 
-  // Radio setup for FSK at target frequency
-  setRadioPower(power);
-  setRadioModulation(2); // FSK mode
-  setRadioFrequency(freqMhz);
-  setRadioDeviation(0x04); // 2.5 kHz deviation
-  radioEnableTx();
-  delay(10); // Radio TX power ramp up
+  // Base frequency is set 2.4 kHz below target frequency so offset 0 is -2.4 kHz and offset 0x1F is +2.4 kHz
+  float baseFreq = freqMhz - 0.0024f;
 
-  // Preamble: 8 bytes 0xAA (alternating 10101010)
-  for (int i = 0; i < 8; i++) {
+  setRadioPower(power);
+  setRadioModulation(0); // CW mode for direct frequency shifting
+  setRadioFrequency(baseFreq);
+  setRadioSmallOffset(0x00);
+  radioEnableTx();
+  delay(10); // Radio PA ramp-up
+
+  // Preamble: 16 bytes 0xAA (alternating 10101010)
+  for (int i = 0; i < 16; i++) {
     rs41_tx_byte(0xAA);
   }
 
-  // 8-byte RS41 Sync Word
+  // 8-byte RS41 Sync Word matching SX1278 hardware synchronizer
   for (int i = 0; i < 8; i++) {
     rs41_tx_byte(RS41_SYNC_BYTES[i]);
   }
 
-  // 320 Bytes Scrambled RS41 Payload
-  for (int i = 0; i < 320; i++) {
+  // 312 Bytes Scrambled RS41 Payload (indices 8 to 319)
+  for (int i = 8; i < 320; i++) {
     rs41_tx_byte(tx_scrambled[i]);
   }
 

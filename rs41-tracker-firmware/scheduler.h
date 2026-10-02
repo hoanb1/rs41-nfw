@@ -266,6 +266,7 @@ void schedulerLoop() {
     interfaceHandler();  sch_lastInterface = millis();   // keep $NFW telemetry / Ground Control alive
 
     if (pipEnable)     { pipTx();     }
+    if (rs41Enable)    { rs41Tx();    }
     if (horusV3Enable) { horusV3Tx(); }
     #ifdef RSM4x4
     if (horusEnable)   { horusTx();   }
@@ -591,7 +592,7 @@ void schedulerLoop() {
 
         switch (pickIdx) {
           case 0: pipTx();     sch_tickTime(); sch_nextPipMs     = sch_nextSlot(sch_sysMs, pipTimeSyncSeconds,     pipTimeSyncOffsetSeconds);     break;
-          case 1: horusV3Tx(); sch_tickTime(); sch_nextHorusV3Ms = sch_nextSlot(sch_sysMs, curHorusV3Iv,           horusV3TimeSyncOffsetSeconds); break;
+          case 1: if (rs41Enable) { rs41Tx(); } horusV3Tx(); sch_tickTime(); sch_nextHorusV3Ms = sch_nextSlot(sch_sysMs, curHorusV3Iv,           horusV3TimeSyncOffsetSeconds); break;
           #ifdef RSM4x4
           case 2: horusTx();   sch_tickTime(); sch_nextHorusMs   = sch_nextSlot(sch_sysMs, horusTimeSyncSeconds,   horusTimeSyncOffsetSeconds);   break;
           #endif

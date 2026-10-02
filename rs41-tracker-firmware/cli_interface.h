@@ -137,8 +137,14 @@ bool runXdataCommand(const char* line) {
   }
 
   if (strncmp(line, "CMD:TX", 6) == 0) {
-    xdataSerial.println(F("[cli]: OK - Force TX triggered"));
+    xdataSerial.println(F("[cli]: OK - Force TX triggered (RS41 + Horus)"));
     triggerImmediateTx(false);
+    return true;
+  }
+
+  if (strncmp(line, "CMD:RS41", 8) == 0) {
+    xdataSerial.println(F("[cli]: OK - RS41 GFSK TX triggered"));
+    rs41Tx();
     return true;
   }
 

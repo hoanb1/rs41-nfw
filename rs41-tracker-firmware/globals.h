@@ -67,6 +67,7 @@ void restartGPS();
 void gpsQuietMode();
 void GPSManagement();
 
+void rs41Tx();
 void horusV3Tx();
 void horusTx();
 void aprsTx();
@@ -236,6 +237,7 @@ char* const aprsWxMsg     = g_txScratch.aprsWx;
 char aprsBitStuffingCounter = 0;  // Bit stuffing counter
 unsigned short aprsCrc = 0xffff;  // CRC for error checking
 unsigned int aprsPacketNum = 0;
+uint16_t     rs41PacketNum = 0;
 
 // ===== SCHEDULER STATE =====
 // Managed by schedulerInit() / schedulerLoop(). Do not access directly from other code.

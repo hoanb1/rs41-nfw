@@ -270,7 +270,12 @@ void triggerImmediateTx(bool waitForGpsFresh) {
   pressureHandler(); sch_lastPressure = millis();
 
   // Transmit packet immediately!
-  horusV3Tx();
+  if (rs41Enable) {
+    rs41Tx();
+  }
+  if (horusV3Enable) {
+    horusV3Tx();
+  }
 
   // Reset periodic schedule so next scheduled packet is a full period away
   sch_lastTxHw[1] = millis();
